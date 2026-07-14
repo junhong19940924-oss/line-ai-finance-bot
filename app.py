@@ -79,7 +79,253 @@ def parse_transaction(text: str):
 
 @app.route("/", methods=["GET"])
 def home():
-    return "LINE AI Finance Bot is running."
+        return """
+    <!DOCTYPE html>
+    <html lang="zh-Hant">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>AI 財務管家</title>
+
+        <style>
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+
+            body {
+                font-family: Arial, "Microsoft JhengHei", sans-serif;
+                background: #f4f6f9;
+                color: #1f2937;
+            }
+
+            .header {
+                background: linear-gradient(135deg, #0f766e, #14b8a6);
+                color: white;
+                padding: 28px 20px;
+            }
+
+            .header-content {
+                max-width: 1100px;
+                margin: auto;
+            }
+
+            .header h1 {
+                font-size: 28px;
+                margin-bottom: 8px;
+            }
+
+            .header p {
+                opacity: 0.9;
+            }
+
+            .container {
+                max-width: 1100px;
+                margin: 25px auto;
+                padding: 0 16px;
+            }
+
+            .cards {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 16px;
+                margin-bottom: 22px;
+            }
+
+            .card {
+                background: white;
+                border-radius: 14px;
+                padding: 20px;
+                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+            }
+
+            .card-title {
+                color: #6b7280;
+                font-size: 14px;
+                margin-bottom: 12px;
+            }
+
+            .card-value {
+                font-size: 27px;
+                font-weight: bold;
+            }
+
+            .income {
+                color: #059669;
+            }
+
+            .expense {
+                color: #dc2626;
+            }
+
+            .balance {
+                color: #2563eb;
+            }
+
+            .debt {
+                color: #d97706;
+            }
+
+            .section {
+                background: white;
+                border-radius: 14px;
+                padding: 22px;
+                margin-bottom: 20px;
+                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+            }
+
+            .section h2 {
+                font-size: 19px;
+                margin-bottom: 18px;
+            }
+
+            table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+
+            th,
+            td {
+                padding: 13px 10px;
+                border-bottom: 1px solid #e5e7eb;
+                text-align: left;
+            }
+
+            th {
+                color: #6b7280;
+                font-size: 14px;
+            }
+
+            .status {
+                display: inline-block;
+                background: #d1fae5;
+                color: #047857;
+                padding: 5px 10px;
+                border-radius: 20px;
+                font-size: 13px;
+            }
+
+            .ai-box {
+                background: #ecfeff;
+                border-left: 5px solid #14b8a6;
+                border-radius: 10px;
+                padding: 18px;
+                line-height: 1.8;
+            }
+
+            .footer {
+                text-align: center;
+                color: #9ca3af;
+                padding: 10px 20px 30px;
+                font-size: 13px;
+            }
+
+            @media (max-width: 850px) {
+                .cards {
+                    grid-template-columns: repeat(2, 1fr);
+                }
+            }
+
+            @media (max-width: 520px) {
+                .cards {
+                    grid-template-columns: 1fr;
+                }
+
+                .header h1 {
+                    font-size: 23px;
+                }
+
+                .card-value {
+                    font-size: 24px;
+                }
+
+                table {
+                    font-size: 13px;
+                }
+            }
+        </style>
+    </head>
+
+    <body>
+        <div class="header">
+            <div class="header-content">
+                <h1>AI 財務管家</h1>
+                <p>記帳、收支分析與負債管理</p>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="cards">
+                <div class="card">
+                    <div class="card-title">本月收入</div>
+                    <div class="card-value income">NT$ 0</div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">本月支出</div>
+                    <div class="card-value expense">NT$ 0</div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">本月結餘</div>
+                    <div class="card-value balance">NT$ 0</div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">總負債</div>
+                    <div class="card-value debt">NT$ 0</div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>最近記帳紀錄</h2>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>日期</th>
+                            <th>項目</th>
+                            <th>分類</th>
+                            <th>金額</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        <tr>
+                            <td>尚無資料</td>
+                            <td>請從 LINE 輸入記帳內容</td>
+                            <td>—</td>
+                            <td>NT$ 0</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="section">
+                <h2>LINE Bot 狀態</h2>
+                <span class="status">系統運作中</span>
+                <p style="margin-top: 12px; color: #6b7280;">
+                    可在 LINE 輸入：「早餐 85」、「加油 500」或「薪水 70000」。
+                </p>
+            </div>
+
+            <div class="section">
+                <h2>AI 財務建議</h2>
+
+                <div class="ai-box">
+                    目前尚未取得足夠的收支資料。開始使用 LINE 記帳後，
+                    系統將根據你的收入、支出及負債狀況提供分析。
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            AI Finance Manager · Powered by LINE Bot
+        </div>
+    </body>
+    </html>
+    """
 
 
 @app.route("/callback", methods=["POST"])
