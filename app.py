@@ -599,7 +599,7 @@ def home():
                     可在 LINE 輸入：
                     「早餐 85」、
                     「加油 500」或
-                    「薪水 70000」。
+                    「薪水 70000」、「負債 玉山信用卡 40000」或「還款 玉山信用卡 3000」。
                 </p>
             </div>
 
@@ -660,6 +660,139 @@ def callback():
 def handle_message(event):
     user_text = event.message.text.strip()
     user_id = event.source.user_id
+
+    # 還款指令優先處理。
+    # 格式：還款 玉山信用卡 3000
+    if user_text.startswith("還款"):
+        repayment_match = re.match(
+            r"^還款\s+(.+?)\s+(\d[\d,]*)\s*$",
+            user_text,
+        )
+
+        if not repayment_match:
+            reply_line(
+                event,
+                "格式錯誤\n請輸入：還款 名稱 金額\n"
+                "例如：還款 玉山信用卡 3000",
+            )
+            return
+
+        debt_name = repayment_match.group(1).strip()
+
+        try:
+            payment_amount = int(
+                repayment_match.group(2).replace(",", "")
+            )
+        except ValueError:
+            reply_line(
+                event,
+                "金額格式錯誤\n例如：還款 玉山信用卡 3000",
+            )
+            return
+
+        if payment_amount <= 0:
+            reply_line(event, "還款金額必須大於 0")
+            return
+
+        try:
+            debt_response = (
+                supabase
+                .table("debts")
+                .select("*")
+                .eq("line_user_id", user_id)
+                .ilike("debt_name", debt_name)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+
+            matched_debts = debt_response.data or []
+
+            # Exact match failed: try a contains match.
+            if not matched_debts:
+                debt_response = (
+                    supabase
+                    .table("debts")
+                    .select("*")
+                    .eq("line_user_id", user_id)
+                    .ilike("debt_name", f"%{debt_name}%")
+                    .order("created_at", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                matched_debts = debt_response.data or []
+
+            if not matched_debts:
+                reply_line(
+                    event,
+                    f"找不到負債：{debt_name}\n"
+                    "請確認名稱是否和新增時相同。",
+                )
+                return
+
+            debt = matched_debts[0]
+            debt_id = debt.get("id")
+            current_remaining = int(
+                debt.get("remaining_amount") or 0
+            )
+
+            if current_remaining <= 0:
+                reply_line(
+                    event,
+                    f"{debt.get('debt_name') or debt_name} 已經還清。",
+                )
+                return
+
+            actual_payment = min(
+                payment_amount,
+                current_remaining,
+            )
+            new_remaining = current_remaining - actual_payment
+
+            supabase.table("debts").update(
+                {
+                    "remaining_amount": new_remaining,
+                    "monthly_payment": actual_payment,
+                }
+            ).eq("id", debt_id).execute()
+
+            # 還款屬於現金流支出，因此同步寫入 transactions。
+            supabase.table("transactions").insert(
+                {
+                    "line_user_id": user_id,
+                    "type": "支出",
+                    "category": "貸款",
+                    "amount": actual_payment,
+                    "description": (
+                        f"還款 {debt.get('debt_name') or debt_name}"
+                    ),
+                }
+            ).execute()
+
+        except Exception as error:
+            print("還款處理失敗：", error)
+            reply_line(
+                event,
+                "還款失敗，系統已記錄錯誤，請稍後再試。",
+            )
+            return
+
+        extra_note = ""
+        if payment_amount > current_remaining:
+            extra_note = (
+                f"\n輸入金額超過剩餘負債，"
+                f"本次實際還款 NT$ {actual_payment:,}"
+            )
+
+        reply_line(
+            event,
+            f"💰 已記錄還款\n"
+            f"名稱：{debt.get('debt_name') or debt_name}\n"
+            f"還款金額：NT$ {actual_payment:,}\n"
+            f"剩餘負債：NT$ {new_remaining:,}"
+            f"{extra_note}",
+        )
+        return
 
     # 負債指令優先處理，避免被一般記帳解析器誤判成支出。
     # 可接受：
@@ -735,7 +868,8 @@ def handle_message(event):
             "早餐 85\n"
             "加油 500\n"
             "薪水 70000\n"
-            "新增負債 玉山信用卡 40000",
+            "負債 玉山信用卡 40000\n"
+            "還款 玉山信用卡 3000",
         )
         return
 
