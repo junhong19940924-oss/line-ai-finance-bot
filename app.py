@@ -1,5 +1,8 @@
 import os
 import re
+from datetime import datetime
+from html import escape
+from zoneinfo import ZoneInfo
 
 from flask import Flask, abort, request
 from linebot.v3 import WebhookHandler
@@ -14,7 +17,6 @@ from linebot.v3.messaging import (
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from supabase import Client, create_client
 
-
 app = Flask(__name__)
 
 LINE_CHANNEL_SECRET = os.environ["LINE_CHANNEL_SECRET"]
@@ -23,43 +25,107 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
+
 configuration = Configuration(
     access_token=LINE_CHANNEL_ACCESS_TOKEN
 )
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+supabase: Client = create_client(
+    SUPABASE_URL,
+    SUPABASE_KEY,
+)
 
 def classify_expense(description: str) -> str:
     text = description.lower()
 
-    categories = {
-        "餐飲": ["早餐", "午餐", "晚餐", "飲料", "咖啡", "便當", "麥當勞"],
-        "交通": ["加油", "停車", "計程車", "捷運", "火車", "高鐵"],
-        "購物": ["衣服", "鞋子", "蝦皮", "購物"],
-        "娛樂": ["電影", "遊戲", "唱歌"],
-        "生活": ["水費", "電費", "瓦斯", "房租", "電話費"],
+    category_keywords = {
+        "餐飲": [
+            "早餐", "午餐", "晚餐", "宵夜", "飲料", "咖啡",
+            "便當", "餐廳", "吃飯", "食物", "麥當勞",
+        ],
+        "交通": [
+            "加油", "停車", "計程車", "uber", "高鐵",
+            "火車", "捷運", "公車", "車票", "過路費",
+        ],
+        "購物": [
+            "衣服", "鞋子", "購物", "網購", "蝦皮",
+            "momo", "生活用品", "日用品",
+        ],
+        "娛樂": [
+            "電影", "遊戲", "唱歌", "ktv", "旅遊",
+            "住宿", "門票",
+        ],
+        "醫療": [
+            "看醫生", "掛號", "藥", "診所", "醫院",
+            "牙醫", "保健",
+        ],
+        "居家": [
+            "房租", "水費", "電費", "瓦斯", "網路",
+            "電話費", "管理費",
+        ],
+        "保險": ["保險", "保費"],
+        "貸款": ["車貸", "信貸", "房貸", "貸款", "還款"],
     }
 
-    for category, keywords in categories.items():
+    for category, keywords in category_keywords.items():
         if any(keyword in text for keyword in keywords):
             return category
 
     return "其他"
 
 
-def parse_transaction(text: str):
-    match = re.search(r"(.+?)\s*([0-9,]+)\s*元?$", text.strip())
+def parse_transaction(user_text: str):
+    text = user_text.strip()
 
-    if not match:
+    amount_match = re.search(
+        r"(-?\d[\d,]*(?:\.\d+)?)",
+        text
+    )
+
+    if not amount_match:
         return None
 
-    description = match.group(1).strip()
-    amount = int(match.group(2).replace(",", ""))
+    try:
+        amount = float(
+            amount_match.group(1).replace(",", "")
+        )
+    except ValueError:
+        return None
 
-    income_keywords = ["薪水", "獎金", "收入", "退款", "賺"]
+    if amount <= 0:
+        return None
+
+    description = (
+        text[:amount_match.start()]
+        + text[amount_match.end():]
+    ).strip()
+
+    description = re.sub(
+        r"[元塊\$NTnt：:，,\s]+$",
+        "",
+        description,
+    ).strip()
+
+    if not description:
+        description = "未填寫項目"
+
+    income_keywords = [
+        "薪水",
+        "薪資",
+        "收入",
+        "獎金",
+        "年終",
+        "兼職",
+        "利息",
+        "股息",
+        "退款",
+        "入帳",
+        "收款",
+    ]
+
     transaction_type = (
         "收入"
-        if any(keyword in description for keyword in income_keywords)
+        if any(keyword in text for keyword in income_keywords)
         else "支出"
     )
 
@@ -79,202 +145,367 @@ def parse_transaction(text: str):
 
 @app.route("/", methods=["GET"])
 def home():
-        return """
+    try:
+        response = (
+            supabase
+            .table("transactions")
+            .select("*")
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+        transactions = response.data or []
+
+    except Exception as error:
+        print("Dashboard 讀取 Supabase 失敗：", error)
+        transactions = []
+
+    taiwan_now = datetime.now(
+        ZoneInfo("Asia/Taipei")
+    )
+
+    current_month = taiwan_now.strftime("%Y-%m")
+
+    monthly_income = 0
+    monthly_expense = 0
+
+    for item in transactions:
+        created_at = str(
+            item.get("created_at", "")
+        )
+
+        if not created_at.startswith(current_month):
+            continue
+
+        amount = float(
+            item.get("amount") or 0
+        )
+
+        if item.get("type") == "收入":
+            monthly_income += amount
+
+        elif item.get("type") == "支出":
+            monthly_expense += amount
+
+    monthly_balance = monthly_income - monthly_expense
+
+    recent_rows = ""
+
+    for item in transactions[:10]:
+        created_at = str(
+            item.get("created_at", "")
+        )[:10]
+
+        description = escape(
+            str(item.get("description") or "未填寫")
+        )
+
+        category = escape(
+            str(item.get("category") or "未分類")
+        )
+
+        transaction_type = str(
+            item.get("type") or ""
+        )
+
+        amount = float(
+            item.get("amount") or 0
+        )
+
+        if transaction_type == "收入":
+            amount_sign = "+"
+            amount_class = "income"
+        else:
+            amount_sign = "-"
+            amount_class = "expense"
+
+        recent_rows += f"""
+        <tr>
+            <td>{created_at}</td>
+            <td>{description}</td>
+            <td>{category}</td>
+            <td class="{amount_class}">
+                {amount_sign} NT$ {amount:,.0f}
+            </td>
+        </tr>
+        """
+
+    if not recent_rows:
+        recent_rows = """
+        <tr>
+            <td>尚無資料</td>
+            <td>請從 LINE 輸入記帳內容</td>
+            <td>—</td>
+            <td>NT$ 0</td>
+        </tr>
+        """
+
+    if monthly_income == 0 and monthly_expense == 0:
+        ai_advice = (
+            "目前尚未取得本月收支資料。"
+            "請先從 LINE 輸入記帳內容。"
+        )
+
+    elif monthly_expense > monthly_income:
+        ai_advice = (
+            "本月支出目前高於收入，"
+            "建議先檢查非必要支出，"
+            "並設定每週可使用的預算。"
+        )
+
+    elif monthly_expense >= monthly_income * 0.8:
+        ai_advice = (
+            "本月支出已接近收入的 80%，"
+            "建議控制接下來的娛樂及購物支出。"
+        )
+
+    else:
+        savings_rate = (
+            monthly_balance / monthly_income * 100
+            if monthly_income > 0
+            else 0
+        )
+
+        ai_advice = (
+            f"本月目前結餘 NT$ {monthly_balance:,.0f}，"
+            f"結餘率約 {savings_rate:.0f}%。"
+            "建議保留一部分作為緊急預備金。"
+        )
+
+            html = f"""
     <!DOCTYPE html>
     <html lang="zh-Hant">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0"
+        >
+
         <title>AI 財務管家</title>
 
         <style>
-            * {
+            * {{
                 box-sizing: border-box;
                 margin: 0;
                 padding: 0;
-            }
+            }}
 
-            body {
+            body {{
                 font-family: Arial, "Microsoft JhengHei", sans-serif;
                 background: #f4f6f9;
                 color: #1f2937;
-            }
+            }}
 
-            .header {
-                background: linear-gradient(135deg, #0f766e, #14b8a6);
+            .header {{
+                background: linear-gradient(
+                    135deg,
+                    #0f766e,
+                    #14532d
+                );
                 color: white;
-                padding: 28px 20px;
-            }
+                padding: 32px 20px;
+            }}
 
-            .header-content {
+            .container {{
+                width: 92%;
                 max-width: 1100px;
                 margin: auto;
-            }
+            }}
 
-            .header h1 {
-                font-size: 28px;
+            .header h1 {{
+                font-size: 30px;
                 margin-bottom: 8px;
-            }
+            }}
 
-            .header p {
+            .header p {{
                 opacity: 0.9;
-            }
+            }}
 
-            .container {
-                max-width: 1100px;
-                margin: 25px auto;
-                padding: 0 16px;
-            }
-
-            .cards {
+            .summary {{
                 display: grid;
-                grid-template-columns: repeat(4, 1fr);
+                grid-template-columns:
+                    repeat(4, 1fr);
                 gap: 16px;
-                margin-bottom: 22px;
-            }
+                margin-top: 25px;
+            }}
 
-            .card {
-                background: white;
-                border-radius: 14px;
-                padding: 20px;
-                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
-            }
-
-            .card-title {
-                color: #6b7280;
-                font-size: 14px;
-                margin-bottom: 12px;
-            }
-
-            .card-value {
-                font-size: 27px;
-                font-weight: bold;
-            }
-
-            .income {
-                color: #059669;
-            }
-
-            .expense {
-                color: #dc2626;
-            }
-
-            .balance {
-                color: #2563eb;
-            }
-
-            .debt {
-                color: #d97706;
-            }
-
-            .section {
+            .card {{
                 background: white;
                 border-radius: 14px;
                 padding: 22px;
-                margin-bottom: 20px;
-                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
-            }
+                box-shadow:
+                    0 4px 15px
+                    rgba(0, 0, 0, 0.06);
+            }}
 
-            .section h2 {
-                font-size: 19px;
-                margin-bottom: 18px;
-            }
-
-            table {
-                width: 100%;
-                border-collapse: collapse;
-            }
-
-            th,
-            td {
-                padding: 13px 10px;
-                border-bottom: 1px solid #e5e7eb;
-                text-align: left;
-            }
-
-            th {
+            .card-title {{
                 color: #6b7280;
                 font-size: 14px;
-            }
+                margin-bottom: 10px;
+            }}
 
-            .status {
+            .amount {{
+                font-size: 26px;
+                font-weight: bold;
+            }}
+
+            .income {{
+                color: #15803d;
+            }}
+
+            .expense {{
+                color: #dc2626;
+            }}
+
+            .balance {{
+                color: #2563eb;
+            }}
+
+            .debt {{
+                color: #b45309;
+            }}
+
+            .section {{
+                background: white;
+                margin-top: 22px;
+                padding: 24px;
+                border-radius: 14px;
+                box-shadow:
+                    0 4px 15px
+                    rgba(0, 0, 0, 0.05);
+            }}
+
+            .section h2 {{
+                margin-bottom: 18px;
+            }}
+
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+            }}
+
+            th,
+            td {{
+                padding: 13px;
+                text-align: left;
+                border-bottom:
+                    1px solid #e5e7eb;
+            }}
+
+            th {{
+                color: #6b7280;
+                font-size: 14px;
+            }}
+
+            .status {{
                 display: inline-block;
-                background: #d1fae5;
-                color: #047857;
-                padding: 5px 10px;
+                background: #dcfce7;
+                color: #166534;
+                padding: 7px 12px;
                 border-radius: 20px;
-                font-size: 13px;
-            }
+                font-size: 14px;
+            }}
 
-            .ai-box {
-                background: #ecfeff;
-                border-left: 5px solid #14b8a6;
-                border-radius: 10px;
+            .ai-box {{
+                background: #f0fdfa;
+                border-left:
+                    5px solid #0f766e;
                 padding: 18px;
+                border-radius: 8px;
                 line-height: 1.8;
-            }
+            }}
 
-            .footer {
+            .footer {{
                 text-align: center;
                 color: #9ca3af;
-                padding: 10px 20px 30px;
+                padding: 30px;
                 font-size: 13px;
-            }
+            }}
 
-            @media (max-width: 850px) {
-                .cards {
-                    grid-template-columns: repeat(2, 1fr);
-                }
-            }
+            @media (
+                max-width: 800px
+            ) {{
+                .summary {{
+                    grid-template-columns:
+                        repeat(2, 1fr);
+                }}
+            }}
 
-            @media (max-width: 520px) {
-                .cards {
+            @media (
+                max-width: 500px
+            ) {{
+                .summary {{
                     grid-template-columns: 1fr;
-                }
+                }}
 
-                .header h1 {
-                    font-size: 23px;
-                }
+                .amount {{
+                    font-size: 22px;
+                }}
 
-                .card-value {
-                    font-size: 24px;
-                }
-
-                table {
+                table {{
                     font-size: 13px;
-                }
-            }
+                }}
+
+                th,
+                td {{
+                    padding: 8px;
+                }}
+            }}
         </style>
     </head>
 
     <body>
         <div class="header">
-            <div class="header-content">
+            <div class="container">
                 <h1>AI 財務管家</h1>
-                <p>記帳、收支分析與負債管理</p>
+
+                <p>
+                    記帳、收支分析與負債管理
+                </p>
             </div>
         </div>
 
         <div class="container">
-            <div class="cards">
+            <div class="summary">
                 <div class="card">
-                    <div class="card-title">本月收入</div>
-                    <div class="card-value income">NT$ 0</div>
+                    <div class="card-title">
+                        本月收入
+                    </div>
+
+                    <div class="amount income">
+                        NT$ {monthly_income:,.0f}
+                    </div>
                 </div>
 
                 <div class="card">
-                    <div class="card-title">本月支出</div>
-                    <div class="card-value expense">NT$ 0</div>
+                    <div class="card-title">
+                        本月支出
+                    </div>
+
+                    <div class="amount expense">
+                        NT$ {monthly_expense:,.0f}
+                    </div>
                 </div>
 
                 <div class="card">
-                    <div class="card-title">本月結餘</div>
-                    <div class="card-value balance">NT$ 0</div>
+                    <div class="card-title">
+                        本月結餘
+                    </div>
+
+                    <div class="amount balance">
+                        NT$ {monthly_balance:,.0f}
+                    </div>
                 </div>
 
                 <div class="card">
-                    <div class="card-title">總負債</div>
-                    <div class="card-value debt">NT$ 0</div>
+                    <div class="card-title">
+                        總負債
+                    </div>
+
+                    <div class="amount debt">
+                        NT$ 0
+                    </div>
                 </div>
             </div>
 
@@ -292,21 +523,28 @@ def home():
                     </thead>
 
                     <tbody>
-                        <tr>
-                            <td>尚無資料</td>
-                            <td>請從 LINE 輸入記帳內容</td>
-                            <td>—</td>
-                            <td>NT$ 0</td>
-                        </tr>
+                        {recent_rows}
                     </tbody>
                 </table>
             </div>
 
             <div class="section">
                 <h2>LINE Bot 狀態</h2>
-                <span class="status">系統運作中</span>
-                <p style="margin-top: 12px; color: #6b7280;">
-                    可在 LINE 輸入：「早餐 85」、「加油 500」或「薪水 70000」。
+
+                <span class="status">
+                    系統運作中
+                </span>
+
+                <p
+                    style="
+                        margin-top: 12px;
+                        color: #6b7280;
+                    "
+                >
+                    可在 LINE 輸入：
+                    「早餐 85」、
+                    「加油 500」或
+                    「薪水 70000」。
                 </p>
             </div>
 
@@ -314,40 +552,57 @@ def home():
                 <h2>AI 財務建議</h2>
 
                 <div class="ai-box">
-                    目前尚未取得足夠的收支資料。開始使用 LINE 記帳後，
-                    系統將根據你的收入、支出及負債狀況提供分析。
+                    {ai_advice}
                 </div>
             </div>
         </div>
 
         <div class="footer">
-            AI Finance Manager · Powered by LINE Bot
+            AI Finance Manager
+            · Powered by LINE Bot
         </div>
     </body>
     </html>
     """
 
+    return html
+
 
 @app.route("/callback", methods=["POST"])
 def callback():
-    signature = request.headers.get("X-Line-Signature")
-    body = request.get_data(as_text=True)
+    signature = request.headers.get(
+        "X-Line-Signature"
+    )
+
+    body = request.get_data(
+        as_text=True
+    )
 
     if not signature:
         abort(400)
 
     try:
-        handler.handle(body, signature)
+        handler.handle(
+            body,
+            signature,
+        )
+
     except InvalidSignatureError:
         abort(400)
 
     return "OK"
 
 
-@handler.add(MessageEvent, message=TextMessageContent)
+@handler.add(
+    MessageEvent,
+    message=TextMessageContent,
+)
 def handle_message(event):
     user_text = event.message.text.strip()
-    transaction = parse_transaction(user_text)
+
+    transaction = parse_transaction(
+        user_text
+    )
 
     if transaction is None:
         reply_text = (
@@ -357,10 +612,13 @@ def handle_message(event):
             "加油 500\n"
             "薪水 70000"
         )
+
     else:
         user_id = event.source.user_id
 
-        supabase.table("transactions").insert(
+        supabase.table(
+            "transactions"
+        ).insert(
             {
                 "line_user_id": user_id,
                 "type": transaction["type"],
@@ -370,25 +628,48 @@ def handle_message(event):
             }
         ).execute()
 
-        sign = "+" if transaction["type"] == "收入" else "-"
+        sign = (
+            "+"
+            if transaction["type"] == "收入"
+            else "-"
+        )
 
         reply_text = (
             f"✅ 已記錄{transaction['type']}\n"
             f"分類：{transaction['category']}\n"
             f"項目：{transaction['description']}\n"
-            f"金額：{sign} NT${transaction['amount']:,}"
+            f"金額：{sign} NT$ "
+            f"{transaction['amount']:,.0f}"
         )
 
-    with ApiClient(configuration) as api_client:
-        messaging_api = MessagingApi(api_client)
+    with ApiClient(
+        configuration
+    ) as api_client:
+        messaging_api = MessagingApi(
+            api_client
+        )
+
         messaging_api.reply_message(
             ReplyMessageRequest(
                 reply_token=event.reply_token,
-                messages=[TextMessage(text=reply_text)],
+                messages=[
+                    TextMessage(
+                        text=reply_text
+                    )
+                ],
             )
         )
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    port = int(
+        os.environ.get(
+            "PORT",
+            5000,
+        )
+    )
+
+    app.run(
+        host="0.0.0.0",
+        port=port,
+    )
