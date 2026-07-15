@@ -662,10 +662,17 @@ def handle_message(event):
     user_id = event.source.user_id
 
     # 負債指令優先處理，避免被一般記帳解析器誤判成支出。
+    # 可接受：
+    # 新增負債 玉山信用卡 40000
+    # 新增負債玉山信用卡40000
+    # 負債 玉山信用卡 40,000
     if user_text.startswith(("新增負債", "負債")):
-        parts = user_text.split()
+        debt_match = re.match(
+            r"^(?:新增負債|負債)\\s*(.+?)\\s*(\\d[\\d,]*)\\s*$",
+            user_text,
+        )
 
-        if len(parts) < 3:
+        if not debt_match:
             reply_line(
                 event,
                 "格式錯誤\n請輸入：新增負債 名稱 金額\n"
@@ -673,10 +680,10 @@ def handle_message(event):
             )
             return
 
-        debt_name = " ".join(parts[1:-1]).strip()
+        debt_name = debt_match.group(1).strip()
 
         try:
-            amount = int(parts[-1].replace(",", ""))
+            amount = int(debt_match.group(2).replace(",", ""))
         except ValueError:
             reply_line(event, "金額格式錯誤\n例如：新增負債 玉山信用卡 40000")
             return
