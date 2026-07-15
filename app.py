@@ -615,6 +615,7 @@ def handle_message(event):
 
                 supabase.table("debts").insert(
                     {
+                        "user_id": user_id,
                         "debt_name": debt_name,
                         "debt_type": (
                             "信用卡" if "卡" in debt_name
