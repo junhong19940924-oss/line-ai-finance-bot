@@ -66,6 +66,9 @@ def classify_expense(description: str) -> str:
             "早餐", "午餐", "晚餐", "宵夜", "飲料", "咖啡",
             "便當", "餐廳", "吃飯", "食物", "麥當勞",
         ],
+        "信用卡刷卡": [
+            "刷卡", "信用卡", "卡費消費",
+        ],
         "加油": [
             "加油", "汽油", "柴油",
         ],
@@ -183,6 +186,180 @@ def parse_transaction(user_text: str) -> dict[str, Any] | None:
     }
 
 
+def normalize_account(value: str | None) -> str:
+    account = (value or "").strip()
+    return account if account else "個人"
+
+
+def get_account_transactions(
+    account: str,
+    user_id: str | None = None,
+) -> list[dict[str, Any]]:
+    query = (
+        supabase
+        .table("transactions")
+        .select("*")
+        .eq("account", account)
+        .order("created_at", desc=True)
+    )
+
+    if user_id:
+        query = query.eq("line_user_id", user_id)
+
+    response = query.execute()
+    return response.data or []
+
+
+def get_account_opening_balance(account: str) -> int:
+    response = (
+        supabase
+        .table("account_balances")
+        .select("opening_balance")
+        .eq("account", account)
+        .limit(1)
+        .execute()
+    )
+
+    rows = response.data or []
+    return int(rows[0].get("opening_balance") or 0) if rows else 0
+
+
+def calculate_account_balance(
+    account: str,
+    transactions: list[dict[str, Any]],
+) -> int:
+    opening_balance = get_account_opening_balance(account)
+    net_change = 0
+
+    for item in transactions:
+        amount = int(item.get("amount") or 0)
+        if item.get("type") == "收入":
+            net_change += amount
+        elif item.get("type") == "支出":
+            net_change -= amount
+
+    return opening_balance + net_change
+
+
+def set_account_current_balance(
+    account: str,
+    current_balance: int,
+    transactions: list[dict[str, Any]],
+) -> None:
+    net_change = 0
+
+    for item in transactions:
+        amount = int(item.get("amount") or 0)
+        if item.get("type") == "收入":
+            net_change += amount
+        elif item.get("type") == "支出":
+            net_change -= amount
+
+    opening_balance = current_balance - net_change
+
+    (
+        supabase
+        .table("account_balances")
+        .upsert(
+            {
+                "account": account,
+                "opening_balance": opening_balance,
+                "updated_at": datetime.now(TAIPEI).isoformat(),
+            },
+            on_conflict="account",
+        )
+        .execute()
+    )
+
+
+JINJIA_BILLS = ("水費", "電費", "網路費")
+JINJIA_PEOPLE = ("俊億", "宗暉", "俊宏")
+
+
+def ensure_jinjia_month_statuses(month: str) -> None:
+    response = (
+        supabase
+        .table("jinjia_statuses")
+        .select("item_type,item_name")
+        .eq("month", month)
+        .execute()
+    )
+
+    existing = {
+        (str(item.get("item_type")), str(item.get("item_name")))
+        for item in (response.data or [])
+    }
+
+    missing = []
+
+    for item_name in JINJIA_BILLS:
+        if ("帳單", item_name) not in existing:
+            missing.append(
+                {
+                    "month": month,
+                    "item_type": "帳單",
+                    "item_name": item_name,
+                    "status": "未繳交",
+                    "amount": 0,
+                }
+            )
+
+    for item_name in JINJIA_PEOPLE:
+        if ("人物", item_name) not in existing:
+            missing.append(
+                {
+                    "month": month,
+                    "item_type": "人物",
+                    "item_name": item_name,
+                    "status": "未繳交",
+                    "amount": 0,
+                }
+            )
+
+    if missing:
+        supabase.table("jinjia_statuses").insert(missing).execute()
+
+
+def get_jinjia_statuses(month: str) -> list[dict[str, Any]]:
+    ensure_jinjia_month_statuses(month)
+
+    response = (
+        supabase
+        .table("jinjia_statuses")
+        .select("*")
+        .eq("month", month)
+        .order("item_type")
+        .order("item_name")
+        .execute()
+    )
+    return response.data or []
+
+
+def update_jinjia_status(
+    month: str,
+    item_type: str,
+    item_name: str,
+    status: str,
+    amount: int,
+) -> None:
+    (
+        supabase
+        .table("jinjia_statuses")
+        .upsert(
+            {
+                "month": month,
+                "item_type": item_type,
+                "item_name": item_name,
+                "status": status,
+                "amount": amount,
+                "updated_at": datetime.now(TAIPEI).isoformat(),
+            },
+            on_conflict="month,item_type,item_name",
+        )
+        .execute()
+    )
+
+
 def get_user_debts(user_id: str) -> list[dict[str, Any]]:
     response = (
         supabase
@@ -242,10 +419,20 @@ def home():
             .order("created_at", desc=True)
             .execute()
         )
-        transactions = transaction_response.data or []
+        all_transactions = transaction_response.data or []
+        transactions = [
+            item for item in all_transactions
+            if normalize_account(item.get("account")) == "個人"
+        ]
+        jinjia_transactions = [
+            item for item in all_transactions
+            if normalize_account(item.get("account")) == "金家水電"
+        ]
     except Exception as error:
         print("Dashboard 讀取 transactions 失敗：", error)
+        all_transactions = []
         transactions = []
+        jinjia_transactions = []
 
     try:
         debt_response = (
@@ -266,6 +453,31 @@ def home():
     )
 
     current_month = datetime.now(TAIPEI).strftime("%Y-%m")
+
+    try:
+        personal_current_balance = calculate_account_balance(
+            "個人",
+            transactions,
+        )
+    except Exception as error:
+        print("讀取個人帳戶餘額失敗：", error)
+        personal_current_balance = 0
+
+    try:
+        jinjia_current_balance = calculate_account_balance(
+            "金家水電",
+            jinjia_transactions,
+        )
+    except Exception as error:
+        print("讀取金家帳戶餘額失敗：", error)
+        jinjia_current_balance = 0
+
+    try:
+        jinjia_statuses = get_jinjia_statuses(current_month)
+    except Exception as error:
+        print("讀取金家繳交狀態失敗：", error)
+        jinjia_statuses = []
+
     monthly_income = 0.0
     monthly_expense = 0.0
 
@@ -356,6 +568,86 @@ def home():
         else "尚無其他收入"
     )
 
+    jinjia_income = 0.0
+    jinjia_expense = 0.0
+
+    for item in jinjia_transactions:
+        created_at = str(item.get("created_at", ""))
+        if not created_at.startswith(current_month):
+            continue
+
+        amount = float(item.get("amount") or 0)
+
+        if item.get("type") == "收入":
+            jinjia_income += amount
+        elif item.get("type") == "支出":
+            jinjia_expense += amount
+
+    jinjia_balance = jinjia_income - jinjia_expense
+
+    bill_status_cards = ""
+    person_status_cards = ""
+
+    for item in jinjia_statuses:
+        item_name = escape(str(item.get("item_name") or "未命名"))
+        status = str(item.get("status") or "未繳交")
+        amount = int(item.get("amount") or 0)
+        status_class = "paid" if status == "已繳交" else "unpaid"
+        amount_text = (
+            f'<div class="status-amount">NT$ {amount:,}</div>'
+            if amount > 0
+            else ""
+        )
+
+        card = f"""
+        <div class="status-card">
+            <div>
+                <strong>{item_name}</strong>
+                {amount_text}
+            </div>
+            <span class="payment-status {status_class}">{status}</span>
+        </div>
+        """
+
+        if item.get("item_type") == "帳單":
+            bill_status_cards += card
+        elif item.get("item_type") == "人物":
+            person_status_cards += card
+
+    if not bill_status_cards:
+        bill_status_cards = '<div class="muted">尚無帳單狀態資料。</div>'
+
+    if not person_status_cards:
+        person_status_cards = '<div class="muted">尚無人物繳交資料。</div>'
+
+    jinjia_recent_rows = ""
+    for item in jinjia_transactions[:10]:
+        created_at = str(item.get("created_at", ""))[:10]
+        description = escape(str(item.get("description") or "未填寫"))
+        transaction_type = str(item.get("type") or "")
+        amount = float(item.get("amount") or 0)
+        sign = "+" if transaction_type == "收入" else "-"
+        css_class = "income" if transaction_type == "收入" else "expense"
+
+        jinjia_recent_rows += f"""
+        <tr>
+            <td>{created_at}</td>
+            <td>{description}</td>
+            <td>{transaction_type}</td>
+            <td class="{css_class}">{sign} NT$ {amount:,.0f}</td>
+        </tr>
+        """
+
+    if not jinjia_recent_rows:
+        jinjia_recent_rows = """
+        <tr>
+            <td>尚無資料</td>
+            <td>請從 LINE 輸入金家收入或支出</td>
+            <td>—</td>
+            <td>NT$ 0</td>
+        </tr>
+        """
+
     debt_records = [
         {
             "created_at": debt.get("created_at", ""),
@@ -445,6 +737,14 @@ def home():
     if not debt_cards:
         debt_cards = '<div class="muted">尚未建立負債資料。</div>'
 
+    top_expense_category = None
+    top_expense_amount = 0.0
+    if expense_by_category:
+        top_expense_category, top_expense_amount = max(
+            expense_by_category.items(),
+            key=lambda pair: pair[1],
+        )
+
     if monthly_income == 0 and monthly_expense == 0:
         ai_advice = "目前尚未取得本月收支資料，請先從 LINE 輸入記帳內容。"
     elif monthly_expense > monthly_income:
@@ -463,9 +763,16 @@ def home():
             if monthly_income > 0
             else 0
         )
+        top_text = (
+            f"本月花費最高為「{top_expense_category}」"
+            f" NT$ {top_expense_amount:,.0f}。"
+            if top_expense_category
+            else ""
+        )
         ai_advice = (
             f"本月目前結餘 NT$ {monthly_balance:,.0f}，"
             f"結餘率約 {savings_rate:.0f}%。"
+            f"{top_text}"
             "建議保留一部分作為緊急預備金。"
         )
 
@@ -613,6 +920,57 @@ def home():
                 font-size: 24px;
                 color: #15803d;
             }}
+            .account-header {{
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 18px;
+            }}
+            .account-badge {{
+                background: #fef3c7;
+                color: #92400e;
+                padding: 6px 10px;
+                border-radius: 999px;
+                font-size: 13px;
+            }}
+            .current-balance {{
+                color: #7c3aed;
+            }}
+            .status-grid {{
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 12px;
+            }}
+            .status-card {{
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 10px;
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+                padding: 14px;
+                background: #fff;
+            }}
+            .payment-status {{
+                padding: 5px 9px;
+                border-radius: 999px;
+                font-size: 13px;
+                white-space: nowrap;
+            }}
+            .payment-status.paid {{
+                background: #dcfce7;
+                color: #166534;
+            }}
+            .payment-status.unpaid {{
+                background: #fee2e2;
+                color: #991b1b;
+            }}
+            .status-amount {{
+                color: #6b7280;
+                font-size: 13px;
+                margin-top: 5px;
+            }}
             .summary-item {{
                 border-bottom: 1px solid #e5e7eb;
                 padding: 12px 0;
@@ -648,12 +1006,12 @@ def home():
                 font-size: 13px;
             }}
             @media (max-width: 800px) {{
-                .summary, .debt-grid, .money-grid, .income-grid {{
+                .summary, .debt-grid, .money-grid, .income-grid, .status-grid {{
                     grid-template-columns: repeat(2, 1fr);
                 }}
             }}
             @media (max-width: 560px) {{
-                .summary, .debt-grid, .money-grid, .income-grid {{
+                .summary, .debt-grid, .money-grid, .income-grid, .status-grid {{
                     grid-template-columns: 1fr;
                 }}
                 .amount {{
@@ -678,6 +1036,12 @@ def home():
 
         <div class="container">
             <div class="summary">
+                <div class="card">
+                    <div class="card-title">目前帳戶餘額</div>
+                    <div class="amount current-balance">
+                        NT$ {personal_current_balance:,.0f}
+                    </div>
+                </div>
                 <div class="card">
                     <div class="card-title">本月收入</div>
                     <div class="amount income">NT$ {monthly_income:,.0f}</div>
@@ -723,6 +1087,53 @@ def home():
             </div>
 
             <div class="section">
+                <div class="account-header">
+                    <h2>金家水電帳戶</h2>
+                    <span class="account-badge">獨立帳戶</span>
+                </div>
+
+                <div class="summary" style="margin-top:0;">
+                    <div class="card">
+                        <div class="card-title">目前帳戶餘額</div>
+                        <div class="amount current-balance">
+                            NT$ {jinjia_current_balance:,.0f}
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">本月收入</div>
+                        <div class="amount income">NT$ {jinjia_income:,.0f}</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">本月支出</div>
+                        <div class="amount expense">NT$ {jinjia_expense:,.0f}</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">本月結餘</div>
+                        <div class="amount balance">NT$ {jinjia_balance:,.0f}</div>
+                    </div>
+                </div>
+
+                <h3 style="margin:22px 0 12px;">帳單繳交狀態</h3>
+                <div class="status-grid">{bill_status_cards}</div>
+
+                <h3 style="margin:22px 0 12px;">人物繳交狀態</h3>
+                <div class="status-grid">{person_status_cards}</div>
+
+                <h3 style="margin:22px 0 12px;">最近紀錄</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>日期</th>
+                            <th>項目</th>
+                            <th>類型</th>
+                            <th>金額</th>
+                        </tr>
+                    </thead>
+                    <tbody>{jinjia_recent_rows}</tbody>
+                </table>
+            </div>
+
+            <div class="section">
                 <h2>負債管理</h2>
                 <div class="debt-grid">{debt_cards}</div>
             </div>
@@ -752,7 +1163,10 @@ def home():
                     還款：還款 玉山信用卡 3000<br>
                     查詢：本月、花費查詢、收入查詢、負債查詢、幫助<br>
                     歷史：歷史 2026-07、歷史 支出 2026-07、
-                    歷史 收入 2026-07、歷史 負債
+                    歷史 收入 2026-07、歷史 飲食、歷史 薪水、
+                    歷史 信用卡刷卡、歷史 負債<br>
+                    金家歷史：金家歷史、金家歷史 收入、
+                    金家歷史 支出 2026-07
                 </p>
             </div>
 
@@ -811,7 +1225,15 @@ def handle_message(event: MessageEvent):
             event,
             "📘 使用方式\n\n"
             "支出：早餐 85\n"
+            "刷卡：刷卡 電影 500\n"
             "收入：薪水 70000\n"
+            "金家支出：金家支出 水費 3000\n"
+            "金家收入：金家收入 15000\n"
+            "設定餘額：設定個人餘額 100000\n"
+            "設定餘額：設定金家餘額 80000\n"
+            "帳單狀態：水費 已繳交 650\n"
+            "人物狀態：俊億 未繳交 3500\n"
+            "狀態查詢：金家狀態\n"
             "負債：負債 玉山信用卡 40000\n"
             "還款：還款 玉山信用卡 3000\n"
             "查詢：本月\n"
@@ -823,6 +1245,287 @@ def handle_message(event: MessageEvent):
             "歷史：歷史 收入 2026-07\n"
             "歷史：歷史 負債",
         )
+        return
+
+    # 帳戶餘額設定與查詢
+    balance_match = re.match(
+        r"^設定(個人|金家)餘額\s+(-?\d[\d,]*)\s*$",
+        user_text,
+    )
+
+    if balance_match:
+        account_label = balance_match.group(1)
+        account = "個人" if account_label == "個人" else "金家水電"
+
+        try:
+            target_balance = int(
+                balance_match.group(2).replace(",", "")
+            )
+            records = get_account_transactions(account)
+            set_account_current_balance(
+                account,
+                target_balance,
+                records,
+            )
+        except Exception as error:
+            print("設定帳戶餘額失敗：", error)
+            reply_line(event, "設定帳戶餘額失敗，請稍後再試。")
+            return
+
+        reply_line(
+            event,
+            f"✅ 已設定{account}目前餘額\n"
+            f"NT$ {target_balance:,}",
+        )
+        return
+
+    if user_text in {"餘額查詢", "帳戶餘額"}:
+        try:
+            personal_records = get_account_transactions("個人")
+            jinjia_records = get_account_transactions("金家水電")
+            personal_balance = calculate_account_balance(
+                "個人",
+                personal_records,
+            )
+            jinjia_balance = calculate_account_balance(
+                "金家水電",
+                jinjia_records,
+            )
+        except Exception as error:
+            print("餘額查詢失敗：", error)
+            reply_line(event, "餘額查詢失敗，請稍後再試。")
+            return
+
+        reply_line(
+            event,
+            f"💰 帳戶餘額\n"
+            f"個人：NT$ {personal_balance:,}\n"
+            f"金家水電：NT$ {jinjia_balance:,}",
+        )
+        return
+
+    # 金家帳單 / 人物繳交狀態
+    jinjia_status_match = re.match(
+        r"^(水費|電費|網路費|俊億|宗暉|俊宏)\s+"
+        r"(已繳交|未繳交|已繳|未繳)"
+        r"(?:\s+(\d[\d,]*))?\s*$",
+        user_text,
+    )
+
+    if jinjia_status_match:
+        item_name = jinjia_status_match.group(1)
+        raw_status = jinjia_status_match.group(2)
+        status = "已繳交" if raw_status in {"已繳交", "已繳"} else "未繳交"
+        amount = parse_positive_int(
+            jinjia_status_match.group(3) or "0"
+        ) or 0
+        item_type = "帳單" if item_name in JINJIA_BILLS else "人物"
+        month = datetime.now(TAIPEI).strftime("%Y-%m")
+
+        try:
+            update_jinjia_status(
+                month,
+                item_type,
+                item_name,
+                status,
+                amount,
+            )
+        except Exception as error:
+            print("更新金家繳交狀態失敗：", error)
+            reply_line(event, "更新繳交狀態失敗，請稍後再試。")
+            return
+
+        amount_text = f"\n金額：NT$ {amount:,}" if amount > 0 else ""
+        reply_line(
+            event,
+            f"🏠 已更新金家繳交狀態\n"
+            f"項目：{item_name}\n"
+            f"狀態：{status}"
+            f"{amount_text}",
+        )
+        return
+
+    if user_text in {"金家狀態", "繳交狀態"}:
+        month = datetime.now(TAIPEI).strftime("%Y-%m")
+
+        try:
+            statuses = get_jinjia_statuses(month)
+        except Exception as error:
+            print("查詢金家狀態失敗：", error)
+            reply_line(event, "金家狀態查詢失敗，請稍後再試。")
+            return
+
+        lines = [f"🏠 金家繳交狀態｜{month}"]
+        for item in statuses:
+            amount = int(item.get("amount") or 0)
+            amount_text = f"｜NT$ {amount:,}" if amount > 0 else ""
+            lines.append(
+                f"{item.get('item_name')}｜"
+                f"{item.get('status') or '未繳交'}"
+                f"{amount_text}"
+            )
+
+        reply_line(event, "\n".join(lines))
+        return
+
+    status_history_match = re.match(
+        r"^金家狀態歷史\s+(\d{4}-\d{2})$",
+        user_text,
+    )
+
+    if status_history_match:
+        month = status_history_match.group(1)
+
+        try:
+            statuses = get_jinjia_statuses(month)
+        except Exception as error:
+            print("查詢金家狀態歷史失敗：", error)
+            reply_line(event, "金家狀態歷史查詢失敗，請稍後再試。")
+            return
+
+        lines = [f"🏠 金家繳交狀態歷史｜{month}"]
+        for item in statuses:
+            amount = int(item.get("amount") or 0)
+            amount_text = f"｜NT$ {amount:,}" if amount > 0 else ""
+            lines.append(
+                f"{item.get('item_name')}｜"
+                f"{item.get('status') or '未繳交'}"
+                f"{amount_text}"
+            )
+
+        reply_line(event, "\n".join(lines))
+        return
+
+    # 金家水電帳戶：支出 / 收入
+    jinjia_match = re.match(
+        r"^金家(支出|收入)\s+(?:(.+?)\s+)?(\d[\d,]*)\s*$",
+        user_text,
+    )
+
+    if jinjia_match:
+        entry_type = jinjia_match.group(1)
+        description = (jinjia_match.group(2) or entry_type).strip()
+        amount = parse_positive_int(jinjia_match.group(3))
+
+        if amount is None:
+            reply_line(event, "金額必須是大於 0 的整數。")
+            return
+
+        category = (
+            "收入"
+            if entry_type == "收入"
+            else classify_expense(description)
+        )
+
+        try:
+            supabase.table("transactions").insert(
+                {
+                    "line_user_id": user_id,
+                    "account": "金家水電",
+                    "type": entry_type,
+                    "category": category,
+                    "amount": amount,
+                    "description": description,
+                }
+            ).execute()
+        except Exception as error:
+            print("金家水電記帳失敗：", error)
+            reply_line(event, "金家水電記帳失敗，請稍後再試。")
+            return
+
+        sign = "+" if entry_type == "收入" else "-"
+        reply_line(
+            event,
+            f"🏠 金家水電已記錄{entry_type}\n"
+            f"分類：{category}\n"
+            f"項目：{description}\n"
+            f"金額：{sign} NT$ {amount:,}",
+        )
+        return
+
+    if user_text.startswith(("金家支出", "金家收入")):
+        reply_line(
+            event,
+            "格式錯誤\n"
+            "支出：金家支出 水費 3000\n"
+            "收入：金家收入 15000",
+        )
+        return
+
+    if user_text in {"金家本月", "金家收支", "金家查詢"}:
+        try:
+            records = get_account_transactions("金家水電", user_id)
+        except Exception as error:
+            print("金家水電本月查詢失敗：", error)
+            reply_line(event, "金家水電資料查詢失敗，請稍後再試。")
+            return
+
+        current_month = datetime.now(TAIPEI).strftime("%Y-%m")
+        income = 0
+        expense = 0
+
+        for item in records:
+            if not str(item.get("created_at", "")).startswith(current_month):
+                continue
+            amount = int(item.get("amount") or 0)
+            if item.get("type") == "收入":
+                income += amount
+            elif item.get("type") == "支出":
+                expense += amount
+
+        reply_line(
+            event,
+            f"🏠 金家水電本月收支\n"
+            f"收入：NT$ {income:,}\n"
+            f"支出：NT$ {expense:,}\n"
+            f"結餘：NT$ {income - expense:,}",
+        )
+        return
+
+    jinjia_history_match = re.match(
+        r"^金家歷史(?:\s+(收入|支出))?(?:\s+(\d{4}-\d{2}))?$",
+        user_text,
+    )
+
+    if jinjia_history_match:
+        jinjia_type = jinjia_history_match.group(1)
+        month = jinjia_history_match.group(2)
+
+        try:
+            records = get_account_transactions("金家水電", user_id)
+        except Exception as error:
+            print("金家歷史查詢失敗：", error)
+            reply_line(event, "金家歷史查詢失敗，請稍後再試。")
+            return
+
+        if month:
+            records = [
+                item for item in records
+                if str(item.get("created_at", "")).startswith(month)
+            ]
+
+        if jinjia_type:
+            records = [
+                item for item in records
+                if item.get("type") == jinjia_type
+            ]
+
+        if not records:
+            reply_line(event, "查無金家水電歷史紀錄。")
+            return
+
+        history_title = jinjia_type or "全部收支"
+        lines = [f"🏠 金家水電歷史｜{history_title}｜{month or '全部月份'}"]
+        for item in records[:20]:
+            date_text = str(item.get("created_at", ""))[:10]
+            sign = "+" if item.get("type") == "收入" else "-"
+            lines.append(
+                f"{date_text}｜{item.get('description') or '未填寫'}"
+                f"｜{item.get('category') or '未分類'}"
+                f"｜{sign}NT$ {int(item.get('amount') or 0):,}"
+            )
+
+        reply_line(event, "\n".join(lines))
         return
 
     # 本月收支查詢
@@ -850,15 +1553,15 @@ def handle_message(event: MessageEvent):
     # 歷史 收入 2026-07
     # 歷史 負債
     history_match = re.match(
-        r"^歷史(?:\s+(收入|支出|負債))?(?:\s+(\d{4}-\d{2}))?$",
+        r"^歷史(?:\s+([^\s]+))?(?:\s+(\d{4}-\d{2}))?$",
         user_text,
     )
 
     if history_match:
-        history_type = history_match.group(1)
+        history_filter = history_match.group(1)
         history_month = history_match.group(2)
 
-        if history_type == "負債":
+        if history_filter == "負債":
             try:
                 debts = get_user_debts(user_id)
             except Exception as error:
@@ -897,8 +1600,8 @@ def handle_message(event: MessageEvent):
                 .order("created_at", desc=True)
             )
 
-            if history_type in {"收入", "支出"}:
-                query = query.eq("type", history_type)
+            if history_filter in {"收入", "支出"}:
+                query = query.eq("type", history_filter)
 
             response = query.execute()
             records = response.data or []
@@ -914,11 +1617,18 @@ def handle_message(event: MessageEvent):
                 if str(item.get("created_at", "")).startswith(history_month)
             ]
 
+        if history_filter and history_filter not in {"收入", "支出"}:
+            records = [
+                item
+                for item in records
+                if str(item.get("category") or "") == history_filter
+            ]
+
         if not records:
             reply_line(event, "查無符合條件的歷史紀錄。")
             return
 
-        title = "全部收支" if not history_type else history_type
+        title = "全部收支" if not history_filter else history_filter
         month_text = history_month or "全部月份"
         lines = [f"📚 {title}歷史｜{month_text}"]
 
@@ -1131,6 +1841,7 @@ def handle_message(event: MessageEvent):
                 supabase.table("transactions").insert(
                     {
                         "line_user_id": user_id,
+                        "account": "個人",
                         "type": "支出",
                         "category": "貸款",
                         "amount": actual_payment,
@@ -1222,6 +1933,52 @@ def handle_message(event: MessageEvent):
         )
         return
 
+    # 信用卡刷卡快捷指令
+    credit_match = re.match(
+        r"^(?:刷卡|信用卡)\s+(.+?)\s+(\d[\d,]*)\s*$",
+        user_text,
+    )
+
+    if credit_match:
+        description = credit_match.group(1).strip()
+        amount = parse_positive_int(credit_match.group(2))
+
+        if amount is None:
+            reply_line(event, "刷卡金額必須是大於 0 的整數。")
+            return
+
+        try:
+            supabase.table("transactions").insert(
+                {
+                    "line_user_id": user_id,
+                    "account": "個人",
+                    "type": "支出",
+                    "category": "信用卡刷卡",
+                    "amount": amount,
+                    "description": description,
+                }
+            ).execute()
+        except Exception as error:
+            print("信用卡刷卡記帳失敗：", error)
+            reply_line(event, "刷卡記帳失敗，請稍後再試。")
+            return
+
+        reply_line(
+            event,
+            f"💳 已記錄信用卡刷卡\n"
+            f"項目：{description}\n"
+            f"金額：- NT$ {amount:,}",
+        )
+        return
+
+    if user_text.startswith(("刷卡", "信用卡")):
+        reply_line(
+            event,
+            "格式錯誤\n請輸入：刷卡 項目 金額\n"
+            "例如：刷卡 電影 500",
+        )
+        return
+
     # 一般收支
     transaction = parse_transaction(user_text)
 
@@ -1243,6 +2000,7 @@ def handle_message(event: MessageEvent):
         supabase.table("transactions").insert(
             {
                 "line_user_id": user_id,
+                "account": "個人",
                 "type": transaction["type"],
                 "category": transaction["category"],
                 "amount": int(transaction["amount"]),
