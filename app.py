@@ -600,7 +600,7 @@ def callback():
 def handle_message(event):
     user_text = event.message.text.strip()
 
-    if user_text.startswith("負債"):
+    if user_text.startswith(("新增負債", "負債")):
         parts = user_text.split()
 
         if len(parts) < 3:
@@ -615,7 +615,7 @@ def handle_message(event):
 
                 supabase.table("debts").insert(
                     {
-                        "user_id": user_id,
+                        "line_user_id": user_id,
                         "debt_name": debt_name,
                         "debt_type": (
                             "信用卡" if "卡" in debt_name
