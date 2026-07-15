@@ -160,6 +160,25 @@ def home():
         print("Dashboard 讀取 Supabase 失敗：", error)
         transactions = []
 
+    try:
+        debt_response = (
+            supabase
+            .table("debts")
+            .select("remaining_amount")
+            .execute()
+        )
+
+        debts = debt_response.data or []
+
+    except Exception as error:
+        print("Dashboard 讀取負債失敗：", error)
+        debts = []
+
+    total_debt = sum(
+        int(item.get("remaining_amount") or 0)
+        for item in debts
+    )
+
     taiwan_now = datetime.now(
         ZoneInfo("Asia/Taipei")
     )
@@ -504,7 +523,7 @@ def home():
                     </div>
 
                     <div class="amount debt">
-                        NT$ 0
+                        NT$ {total_debt:,.0f}
                     </div>
                 </div>
             </div>
