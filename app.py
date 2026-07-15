@@ -623,7 +623,7 @@ def handle_message(event):
                 "line_user_id": user_id,
                 "type": transaction["type"],
                 "category": transaction["category"],
-                "amount": transaction["amount"],
+                "amount": int(transaction["amount"]),
                 "description": transaction["description"],
             }
         ).execute()
