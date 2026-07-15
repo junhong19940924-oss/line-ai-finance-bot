@@ -231,7 +231,7 @@ def home():
 
     recent_rows = ""
 
-    for item in transac_tions[:10]:
+    for item in recent_tiems[:10]:
         created_at = str(
             item.get("created_at", "")
         )[:10]
