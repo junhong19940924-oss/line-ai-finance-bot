@@ -600,8 +600,8 @@ def callback():
 def handle_message(event):
     user_text = event.message.text.strip()
 
-        if user_text.startswith("新增負債 "):
-        parts = user_text.split()
+    if user_text.startswith("新增負債 "):
+         parts = user_text.split()
 
         if len(parts) < 3:
             reply_text = "格式錯誤\n請輸入：新增負債 名稱 金額"
