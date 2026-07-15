@@ -35,6 +35,18 @@ supabase: Client = create_client(
     SUPABASE_KEY,
 )
 
+def reply_line(event, text: str) -> None:
+    """Send exactly one LINE reply for the current event."""
+    with ApiClient(configuration) as api_client:
+        messaging_api = MessagingApi(api_client)
+        messaging_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=text)],
+            )
+        )
+
+
 def classify_expense(description: str) -> str:
     text = description.lower()
 
@@ -176,7 +188,7 @@ def home():
         debts = []
 
     total_debt = sum(
-        int(item.get("remaining_amount") or 0)
+        float(item.get("remaining_amount") or 0)
         for item in debts
     )
 
@@ -611,6 +623,11 @@ def home():
     return html
 
 
+@app.route("/health", methods=["GET"])
+def health():
+    return {"status": "ok"}, 200
+
+
 @app.route("/callback", methods=["POST"])
 def callback():
     signature = request.headers.get(
@@ -642,80 +659,81 @@ def callback():
 )
 def handle_message(event):
     user_text = event.message.text.strip()
+    user_id = event.source.user_id
 
+    # 負債指令優先處理，避免被一般記帳解析器誤判成支出。
     if user_text.startswith(("新增負債", "負債")):
         parts = user_text.split()
 
         if len(parts) < 3:
-            reply_text = "格式錯誤\n請輸入：新增負債 名稱 金額"
-        else:
-            debt_name = " ".join(parts[1:-1])
-
-            try:
-                amount = int(parts[-1].replace(",", ""))
-
-                user_id = event.source.user_id
-
-                supabase.table("debts").insert(
-                    {
-                        "line_user_id": user_id,
-                        "debt_name": debt_name,
-                        "debt_type": (
-                            "信用卡" if "卡" in debt_name
-                            else "車貸" if "車貸" in debt_name or "機車貸" in debt_name
-                            else "信貸" if "信貸" in debt_name or "信用貸款" in debt_name
-                            else "房貸" if "房貸" in debt_name
-                            else "其他"
-                        ),
-                        "original_amount": amount,
-                        "remaining_amount": amount,
-                        "monthly_payment": 0,
-                    }
-                ).execute()
-
-                reply_text = (
-                    f"💳 已新增負債\n"
-                    f"名稱：{debt_name}\n"
-                    f"剩餘金額：NT$ {amount:,}"
-                )
-
-            except ValueError:
-                reply_text = "金額格式錯誤"
-
-        with ApiClient(configuration) as api_client:
-            messaging_api = MessagingApi(api_client)
-            messaging_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[
-                        TextMessage(
-                            text=reply_text
-                        )
-                    ],
-                )
+            reply_line(
+                event,
+                "格式錯誤\n請輸入：新增負債 名稱 金額\n"
+                "例如：新增負債 玉山信用卡 40000",
             )
+            return
 
+        debt_name = " ".join(parts[1:-1]).strip()
+
+        try:
+            amount = int(parts[-1].replace(",", ""))
+        except ValueError:
+            reply_line(event, "金額格式錯誤\n例如：新增負債 玉山信用卡 40000")
+            return
+
+        if amount <= 0:
+            reply_line(event, "負債金額必須大於 0")
+            return
+
+        debt_type = (
+            "信用卡" if "卡" in debt_name
+            else "車貸" if "車貸" in debt_name or "機車貸" in debt_name
+            else "信貸" if "信貸" in debt_name or "信用貸款" in debt_name
+            else "房貸" if "房貸" in debt_name
+            else "其他"
+        )
+
+        try:
+            supabase.table("debts").insert(
+                {
+                    "line_user_id": user_id,
+                    "debt_name": debt_name,
+                    "debt_type": debt_type,
+                    "original_amount": amount,
+                    "remaining_amount": amount,
+                    "monthly_payment": 0,
+                }
+            ).execute()
+        except Exception as error:
+            print("新增負債失敗：", error)
+            reply_line(event, "新增負債失敗，系統已記錄錯誤，請稍後再試。")
+            return
+
+        reply_line(
+            event,
+            f"💳 已新增負債\n"
+            f"名稱：{debt_name}\n"
+            f"類型：{debt_type}\n"
+            f"剩餘金額：NT$ {amount:,}",
+        )
         return
 
-    transaction = parse_transaction(
-        user_text
-    )
+    transaction = parse_transaction(user_text)
 
     if transaction is None:
-        reply_text = (
+        reply_line(
+            event,
             "我看不懂這筆記帳。\n\n"
             "請輸入像這樣：\n"
             "早餐 85\n"
             "加油 500\n"
-            "薪水 70000"
+            "薪水 70000\n"
+            "新增負債 玉山信用卡 40000",
         )
+        return
 
-    else:
-        user_id = event.source.user_id
-
-        supabase.table(
-            "transactions"
-        ).insert(
+    try:
+        supabase.table("transactions").insert(
             {
                 "line_user_id": user_id,
                 "type": transaction["type"],
@@ -724,38 +742,20 @@ def handle_message(event):
                 "description": transaction["description"],
             }
         ).execute()
+    except Exception as error:
+        print("新增記帳失敗：", error)
+        reply_line(event, "記帳失敗，系統已記錄錯誤，請稍後再試。")
+        return
 
-        sign = (
-            "+"
-            if transaction["type"] == "收入"
-            else "-"
-        )
+    sign = "+" if transaction["type"] == "收入" else "-"
 
-        reply_text = (
-            f"✅ 已記錄{transaction['type']}\n"
-            f"分類：{transaction['category']}\n"
-            f"項目：{transaction['description']}\n"
-            f"金額：{sign} NT$ "
-            f"{transaction['amount']:,.0f}"
-        )
-
-    with ApiClient(
-        configuration
-    ) as api_client:
-        messaging_api = MessagingApi(
-            api_client
-        )
-
-        messaging_api.reply_message(
-            ReplyMessageRequest(
-                reply_token=event.reply_token,
-                messages=[
-                    TextMessage(
-                        text=reply_text
-                    )
-                ],
-            )
-        )
+    reply_line(
+        event,
+        f"✅ 已記錄{transaction['type']}\n"
+        f"分類：{transaction['category']}\n"
+        f"項目：{transaction['description']}\n"
+        f"金額：{sign} NT$ {transaction['amount']:,.0f}",
+    )
 
 
 if __name__ == "__main__":
