@@ -600,7 +600,7 @@ def callback():
 def handle_message(event):
     user_text = event.message.text.strip()
 
-    if user_text.startswith("新增負債"):
+    if user_text.startswith("負債"):
         parts = user_text.split()
 
         if len(parts) < 3:
