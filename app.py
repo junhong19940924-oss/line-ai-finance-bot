@@ -330,33 +330,31 @@ def home():
     if not expense_summary_rows:
         expense_summary_rows = '<div class="muted">本月尚無支出資料。</div>'
 
-    income_summary_rows = ""
+    salary_income = float(income_by_category.get("薪水", 0))
+    bonus_income = float(income_by_category.get("獎金", 0))
+    other_income = sum(
+        amount
+        for category, amount in income_by_category.items()
+        if category not in {"薪水", "獎金"}
+    )
+
+    other_income_details = []
     for category, amount in sorted(
         income_by_category.items(),
         key=lambda pair: pair[1],
         reverse=True,
     ):
-        percent = (
-            amount / monthly_income * 100
-            if monthly_income > 0
-            else 0
+        if category in {"薪水", "獎金"}:
+            continue
+        other_income_details.append(
+            f"{escape(category)} NT$ {amount:,.0f}"
         )
-        income_summary_rows += f"""
-        <div class="summary-item">
-            <div class="summary-row">
-                <span>{escape(category)}</span>
-                <strong>NT$ {amount:,.0f}</strong>
-            </div>
-            <div class="progress">
-                <div class="progress-bar income-bar"
-                     style="width:{percent:.1f}%"></div>
-            </div>
-            <div class="muted">{percent:.0f}%</div>
-        </div>
-        """
 
-    if not income_summary_rows:
-        income_summary_rows = '<div class="muted">本月尚無收入資料。</div>'
+    other_income_note = (
+        "、".join(other_income_details)
+        if other_income_details
+        else "尚無其他收入"
+    )
 
     debt_records = [
         {
@@ -598,6 +596,23 @@ def home():
                 grid-template-columns: repeat(2, 1fr);
                 gap: 16px;
             }}
+            .income-grid {{
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 14px;
+            }}
+            .income-card {{
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+                padding: 18px;
+                background: #ffffff;
+            }}
+            .income-card strong {{
+                display: block;
+                margin-top: 8px;
+                font-size: 24px;
+                color: #15803d;
+            }}
             .summary-item {{
                 border-bottom: 1px solid #e5e7eb;
                 padding: 12px 0;
@@ -633,12 +648,12 @@ def home():
                 font-size: 13px;
             }}
             @media (max-width: 800px) {{
-                .summary, .debt-grid, .money-grid {{
+                .summary, .debt-grid, .money-grid, .income-grid {{
                     grid-template-columns: repeat(2, 1fr);
                 }}
             }}
             @media (max-width: 560px) {{
-                .summary, .debt-grid, .money-grid {{
+                .summary, .debt-grid, .money-grid, .income-grid {{
                     grid-template-columns: 1fr;
                 }}
                 .amount {{
@@ -681,15 +696,29 @@ def home():
                 </div>
             </div>
 
-            <div class="money-grid">
-                <div class="section">
-                    <h2>本月花費管理</h2>
-                    {expense_summary_rows}
-                </div>
+            <div class="section">
+                <h2>本月花費管理</h2>
+                {expense_summary_rows}
+            </div>
 
-                <div class="section">
-                    <h2>本月收入管理</h2>
-                    {income_summary_rows}
+            <div class="section">
+                <h2>本月收入管理</h2>
+                <div class="income-grid">
+                    <div class="income-card">
+                        <div class="muted">薪水</div>
+                        <strong>NT$ {salary_income:,.0f}</strong>
+                    </div>
+                    <div class="income-card">
+                        <div class="muted">獎金</div>
+                        <strong>NT$ {bonus_income:,.0f}</strong>
+                    </div>
+                    <div class="income-card">
+                        <div class="muted">其他收入</div>
+                        <strong>NT$ {other_income:,.0f}</strong>
+                        <div class="muted" style="margin-top:8px;">
+                            {other_income_note}
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -721,7 +750,9 @@ def home():
                     收入：薪水 70000<br>
                     負債：負債 玉山信用卡 40000<br>
                     還款：還款 玉山信用卡 3000<br>
-                    查詢：本月、花費查詢、收入查詢、負債查詢、幫助
+                    查詢：本月、花費查詢、收入查詢、負債查詢、幫助<br>
+                    歷史：歷史 2026-07、歷史 支出 2026-07、
+                    歷史 收入 2026-07、歷史 負債
                 </p>
             </div>
 
@@ -786,7 +817,11 @@ def handle_message(event: MessageEvent):
             "查詢：本月\n"
             "查詢：花費查詢\n"
             "查詢：收入查詢\n"
-            "查詢：負債查詢",
+            "查詢：負債查詢\n"
+            "歷史：歷史 2026-07\n"
+            "歷史：歷史 支出 2026-07\n"
+            "歷史：歷史 收入 2026-07\n"
+            "歷史：歷史 負債",
         )
         return
 
@@ -806,6 +841,100 @@ def handle_message(event: MessageEvent):
             f"支出：NT$ {expense:,.0f}\n"
             f"結餘：NT$ {balance:,.0f}",
         )
+        return
+
+    # 歷史紀錄查詢
+    # 支援：
+    # 歷史 2026-07
+    # 歷史 支出 2026-07
+    # 歷史 收入 2026-07
+    # 歷史 負債
+    history_match = re.match(
+        r"^歷史(?:\s+(收入|支出|負債))?(?:\s+(\d{4}-\d{2}))?$",
+        user_text,
+    )
+
+    if history_match:
+        history_type = history_match.group(1)
+        history_month = history_match.group(2)
+
+        if history_type == "負債":
+            try:
+                debts = get_user_debts(user_id)
+            except Exception as error:
+                print("負債歷史查詢失敗：", error)
+                reply_line(event, "負債歷史查詢失敗，請稍後再試。")
+                return
+
+            if history_month:
+                debts = [
+                    debt
+                    for debt in debts
+                    if str(debt.get("created_at", "")).startswith(history_month)
+                ]
+
+            if not debts:
+                reply_line(event, "查無負債歷史紀錄。")
+                return
+
+            lines = ["📚 負債歷史紀錄"]
+            for debt in debts[:20]:
+                created_at = str(debt.get("created_at", ""))[:10]
+                lines.append(
+                    f"{created_at}｜{debt.get('debt_name') or '未命名'}"
+                    f"｜原始 NT$ {int(debt.get('original_amount') or 0):,}"
+                    f"｜剩餘 NT$ {int(debt.get('remaining_amount') or 0):,}"
+                )
+            reply_line(event, "\n".join(lines))
+            return
+
+        try:
+            query = (
+                supabase
+                .table("transactions")
+                .select("*")
+                .eq("line_user_id", user_id)
+                .order("created_at", desc=True)
+            )
+
+            if history_type in {"收入", "支出"}:
+                query = query.eq("type", history_type)
+
+            response = query.execute()
+            records = response.data or []
+        except Exception as error:
+            print("收支歷史查詢失敗：", error)
+            reply_line(event, "歷史紀錄查詢失敗，請稍後再試。")
+            return
+
+        if history_month:
+            records = [
+                item
+                for item in records
+                if str(item.get("created_at", "")).startswith(history_month)
+            ]
+
+        if not records:
+            reply_line(event, "查無符合條件的歷史紀錄。")
+            return
+
+        title = "全部收支" if not history_type else history_type
+        month_text = history_month or "全部月份"
+        lines = [f"📚 {title}歷史｜{month_text}"]
+
+        for item in records[:20]:
+            created_at = str(item.get("created_at", ""))[:10]
+            sign = "+" if item.get("type") == "收入" else "-"
+            lines.append(
+                f"{created_at}｜{item.get('description') or '未填寫'}"
+                f"｜{item.get('category') or '未分類'}"
+                f"｜{sign}NT$ {int(item.get('amount') or 0):,}"
+            )
+
+        if len(records) > 20:
+            lines.append(f"\n共 {len(records)} 筆，目前顯示最新 20 筆。")
+
+        reply_line(event, "\n".join(lines))
         return
 
     # 花費分類查詢
