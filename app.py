@@ -164,7 +164,8 @@ def home():
         debt_response = (
             supabase
             .table("debts")
-            .select("remaining_amount")
+            .select("*")
+            .order("created_at", desc=True)
             .execute()
         )
 
@@ -177,6 +178,26 @@ def home():
     total_debt = sum(
         int(item.get("remaining_amount") or 0)
         for item in debts
+    )
+
+        debt_records = []
+
+    for debt in debts:
+        debt_records.append(
+            {
+                "created_at": debt.get("created_at", ""),
+                "type": "負債",
+                "category": debt.get("debt_type") or "其他",
+                "description": debt.get("debt_name") or "未填寫",
+                "amount": debt.get("remaining_amount") or 0,
+            }
+        )
+
+    recent_items = transactions + debt_records
+
+    recent_items.sort(
+        key=lambda item: str(item.get("created_at", "")),
+        reverse=True,
     )
 
     taiwan_now = datetime.now(
@@ -210,7 +231,7 @@ def home():
 
     recent_rows = ""
 
-    for item in transactions[:10]:
+    for item in transac_tions[:10]:
         created_at = str(
             item.get("created_at", "")
         )[:10]
