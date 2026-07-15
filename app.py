@@ -613,15 +613,21 @@ def handle_message(event):
 
                 user_id = event.source.user_id
 
-                supabase.table("debts").insert(
-                    {
-                        "debt_name": debt_name,
-                        "debt_type": "其他",
-                        "original_amount": amount,
-                        "remaining_amount": amount,
-                        "monthly_payment": 0,
-                    }
-                ).execute()
+            supabase.table("debts").insert(
+                {
+                    "debt_name": debt_name,
+                    "debt_type": (
+                        "信用卡" if "卡" in debt_name
+                        else "車貸" if "車貸" in debt_name or "機車貸" in debt_name
+                        else "信貸" if "信貸" in debt_name or "信用貸款" in debt_name
+                        else "房貸" if "房貸" in debt_name
+                        else "其他"
+                    ),
+                    "original_amount": amount,
+                    "remaining_amount": amount,
+                    "monthly_payment": 0,
+                }
+            ).execute()
 
                 reply_text = (
                     f"💳 已新增負債\n"
