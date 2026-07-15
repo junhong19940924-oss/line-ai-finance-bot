@@ -62,12 +62,15 @@ def classify_expense(description: str) -> str:
     text = description.lower()
 
     category_keywords = {
-        "餐飲": [
+        "飲食": [
             "早餐", "午餐", "晚餐", "宵夜", "飲料", "咖啡",
             "便當", "餐廳", "吃飯", "食物", "麥當勞",
         ],
+        "加油": [
+            "加油", "汽油", "柴油",
+        ],
         "交通": [
-            "加油", "停車", "計程車", "uber", "高鐵",
+            "停車", "計程車", "uber", "高鐵",
             "火車", "捷運", "公車", "車票", "過路費",
         ],
         "購物": [
@@ -107,6 +110,23 @@ def classify_debt(debt_name: str) -> str:
     if "房貸" in debt_name:
         return "房貸"
     return "其他"
+
+
+def classify_income(description: str) -> str:
+    text = description.lower()
+
+    if any(keyword in text for keyword in ["獎金", "年終", "績效", "紅利"]):
+        return "獎金"
+    if any(keyword in text for keyword in ["兼職", "外快", "接案"]):
+        return "兼職"
+    if any(keyword in text for keyword in ["股息", "利息", "配息"]):
+        return "投資收入"
+    if any(keyword in text for keyword in ["退款", "退費"]):
+        return "退款"
+    if any(keyword in text for keyword in ["薪水", "薪資", "月薪", "工資"]):
+        return "薪水"
+
+    return "其他收入"
 
 
 def parse_transaction(user_text: str) -> dict[str, Any] | None:
@@ -150,7 +170,7 @@ def parse_transaction(user_text: str) -> dict[str, Any] | None:
     )
 
     category = (
-        "收入"
+        classify_income(description)
         if transaction_type == "收入"
         else classify_expense(description)
     )
@@ -261,6 +281,82 @@ def home():
             monthly_expense += amount
 
     monthly_balance = monthly_income - monthly_expense
+
+    expense_by_category: dict[str, float] = {}
+    income_by_category: dict[str, float] = {}
+
+    for item in transactions:
+        created_at = str(item.get("created_at", ""))
+        if not created_at.startswith(current_month):
+            continue
+
+        category = str(item.get("category") or "未分類")
+        amount = float(item.get("amount") or 0)
+
+        if item.get("type") == "支出":
+            expense_by_category[category] = (
+                expense_by_category.get(category, 0) + amount
+            )
+        elif item.get("type") == "收入":
+            income_by_category[category] = (
+                income_by_category.get(category, 0) + amount
+            )
+
+    expense_summary_rows = ""
+    for category, amount in sorted(
+        expense_by_category.items(),
+        key=lambda pair: pair[1],
+        reverse=True,
+    ):
+        percent = (
+            amount / monthly_expense * 100
+            if monthly_expense > 0
+            else 0
+        )
+        expense_summary_rows += f"""
+        <div class="summary-item">
+            <div class="summary-row">
+                <span>{escape(category)}</span>
+                <strong>NT$ {amount:,.0f}</strong>
+            </div>
+            <div class="progress">
+                <div class="progress-bar expense-bar"
+                     style="width:{percent:.1f}%"></div>
+            </div>
+            <div class="muted">{percent:.0f}%</div>
+        </div>
+        """
+
+    if not expense_summary_rows:
+        expense_summary_rows = '<div class="muted">本月尚無支出資料。</div>'
+
+    income_summary_rows = ""
+    for category, amount in sorted(
+        income_by_category.items(),
+        key=lambda pair: pair[1],
+        reverse=True,
+    ):
+        percent = (
+            amount / monthly_income * 100
+            if monthly_income > 0
+            else 0
+        )
+        income_summary_rows += f"""
+        <div class="summary-item">
+            <div class="summary-row">
+                <span>{escape(category)}</span>
+                <strong>NT$ {amount:,.0f}</strong>
+            </div>
+            <div class="progress">
+                <div class="progress-bar income-bar"
+                     style="width:{percent:.1f}%"></div>
+            </div>
+            <div class="muted">{percent:.0f}%</div>
+        </div>
+        """
+
+    if not income_summary_rows:
+        income_summary_rows = '<div class="muted">本月尚無收入資料。</div>'
 
     debt_records = [
         {
@@ -491,6 +587,30 @@ def home():
                 height: 100%;
                 background: #0f766e;
             }}
+            .expense-bar {{
+                background: #dc2626;
+            }}
+            .income-bar {{
+                background: #15803d;
+            }}
+            .money-grid {{
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 16px;
+            }}
+            .summary-item {{
+                border-bottom: 1px solid #e5e7eb;
+                padding: 12px 0;
+            }}
+            .summary-item:last-child {{
+                border-bottom: none;
+            }}
+            .summary-row {{
+                display: flex;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 8px;
+            }}
             .status {{
                 display: inline-block;
                 background: #dcfce7;
@@ -513,12 +633,12 @@ def home():
                 font-size: 13px;
             }}
             @media (max-width: 800px) {{
-                .summary, .debt-grid {{
+                .summary, .debt-grid, .money-grid {{
                     grid-template-columns: repeat(2, 1fr);
                 }}
             }}
             @media (max-width: 560px) {{
-                .summary, .debt-grid {{
+                .summary, .debt-grid, .money-grid {{
                     grid-template-columns: 1fr;
                 }}
                 .amount {{
@@ -561,6 +681,18 @@ def home():
                 </div>
             </div>
 
+            <div class="money-grid">
+                <div class="section">
+                    <h2>本月花費管理</h2>
+                    {expense_summary_rows}
+                </div>
+
+                <div class="section">
+                    <h2>本月收入管理</h2>
+                    {income_summary_rows}
+                </div>
+            </div>
+
             <div class="section">
                 <h2>負債管理</h2>
                 <div class="debt-grid">{debt_cards}</div>
@@ -589,7 +721,7 @@ def home():
                     收入：薪水 70000<br>
                     負債：負債 玉山信用卡 40000<br>
                     還款：還款 玉山信用卡 3000<br>
-                    查詢：本月、負債查詢、幫助
+                    查詢：本月、花費查詢、收入查詢、負債查詢、幫助
                 </p>
             </div>
 
@@ -652,6 +784,8 @@ def handle_message(event: MessageEvent):
             "負債：負債 玉山信用卡 40000\n"
             "還款：還款 玉山信用卡 3000\n"
             "查詢：本月\n"
+            "查詢：花費查詢\n"
+            "查詢：收入查詢\n"
             "查詢：負債查詢",
         )
         return
@@ -672,6 +806,94 @@ def handle_message(event: MessageEvent):
             f"支出：NT$ {expense:,.0f}\n"
             f"結餘：NT$ {balance:,.0f}",
         )
+        return
+
+    # 花費分類查詢
+    if user_text in {"花費查詢", "支出分類", "花在哪"}:
+        try:
+            current_month = datetime.now(TAIPEI).strftime("%Y-%m")
+            response = (
+                supabase
+                .table("transactions")
+                .select("category,amount,created_at")
+                .eq("line_user_id", user_id)
+                .eq("type", "支出")
+                .order("created_at", desc=True)
+                .execute()
+            )
+        except Exception as error:
+            print("花費查詢失敗：", error)
+            reply_line(event, "花費查詢失敗，請稍後再試。")
+            return
+
+        totals: dict[str, int] = {}
+        for item in response.data or []:
+            if not str(item.get("created_at", "")).startswith(current_month):
+                continue
+            category = str(item.get("category") or "未分類")
+            totals[category] = totals.get(category, 0) + int(
+                item.get("amount") or 0
+            )
+
+        if not totals:
+            reply_line(event, "本月尚無支出資料。")
+            return
+
+        total_expense = sum(totals.values())
+        lines = ["🧾 本月花費分類"]
+        for category, amount in sorted(
+            totals.items(),
+            key=lambda pair: pair[1],
+            reverse=True,
+        ):
+            percent = amount / total_expense * 100 if total_expense else 0
+            lines.append(f"{category}：NT$ {amount:,}（{percent:.0f}%）")
+        lines.append(f"\n總支出：NT$ {total_expense:,}")
+        reply_line(event, "\n".join(lines))
+        return
+
+    # 收入分類查詢
+    if user_text in {"收入查詢", "薪水查詢", "收入分類"}:
+        try:
+            current_month = datetime.now(TAIPEI).strftime("%Y-%m")
+            response = (
+                supabase
+                .table("transactions")
+                .select("category,amount,created_at")
+                .eq("line_user_id", user_id)
+                .eq("type", "收入")
+                .order("created_at", desc=True)
+                .execute()
+            )
+        except Exception as error:
+            print("收入查詢失敗：", error)
+            reply_line(event, "收入查詢失敗，請稍後再試。")
+            return
+
+        totals: dict[str, int] = {}
+        for item in response.data or []:
+            if not str(item.get("created_at", "")).startswith(current_month):
+                continue
+            category = str(item.get("category") or "其他收入")
+            totals[category] = totals.get(category, 0) + int(
+                item.get("amount") or 0
+            )
+
+        if not totals:
+            reply_line(event, "本月尚無收入資料。")
+            return
+
+        total_income = sum(totals.values())
+        lines = ["💵 本月收入分類"]
+        for category, amount in sorted(
+            totals.items(),
+            key=lambda pair: pair[1],
+            reverse=True,
+        ):
+            percent = amount / total_income * 100 if total_income else 0
+            lines.append(f"{category}：NT$ {amount:,}（{percent:.0f}%）")
+        lines.append(f"\n總收入：NT$ {total_income:,}")
+        reply_line(event, "\n".join(lines))
         return
 
     # 負債查詢
