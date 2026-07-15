@@ -255,9 +255,12 @@ def home():
         if transaction_type == "收入":
             amount_sign = "+"
             amount_class = "income"
-        else:
-            amount_sign = "-"
-            amount_class = "expense"
+        elif transaction_type == "負債":
+            amount_sign = ""
+            amount_class = "debt"
+            else:
+                amount_sign = "-"
+                amount_class = "expense"
 
         recent_rows += f"""
         <tr>
