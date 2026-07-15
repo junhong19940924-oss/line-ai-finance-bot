@@ -600,6 +600,53 @@ def callback():
 def handle_message(event):
     user_text = event.message.text.strip()
 
+        if user_text.startswith("新增負債 "):
+        parts = user_text.split()
+
+        if len(parts) < 3:
+            reply_text = "格式錯誤\n請輸入：新增負債 名稱 金額"
+        else:
+            debt_name = " ".join(parts[1:-1])
+
+            try:
+                amount = int(parts[-1].replace(",", ""))
+
+                user_id = event.source.user_id
+
+                supabase.table("debts").insert(
+                    {
+                        "debt_name": debt_name,
+                        "debt_type": "其他",
+                        "original_amount": amount,
+                        "remaining_amount": amount,
+                        "monthly_payment": 0,
+                    }
+                ).execute()
+
+                reply_text = (
+                    f"💳 已新增負債\n"
+                    f"名稱：{debt_name}\n"
+                    f"剩餘金額：NT$ {amount:,}"
+                )
+
+            except ValueError:
+                reply_text = "金額格式錯誤"
+
+        with ApiClient(configuration) as api_client:
+            messaging_api = MessagingApi(api_client)
+            messaging_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[
+                        TextMessage(
+                            text=reply_text
+                        )
+                    ],
+                )
+            )
+
+        return
+
     transaction = parse_transaction(
         user_text
     )
