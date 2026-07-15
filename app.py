@@ -668,7 +668,7 @@ def handle_message(event):
     # 負債 玉山信用卡 40,000
     if user_text.startswith(("新增負債", "負債")):
         debt_match = re.match(
-            r"^(?:新增負債|負債)\\s*(.+?)\\s*(\\d[\\d,]*)\\s*$",
+            r"^負債\s+(.+?)\s+(\d[\d,]*)\s*$",
             user_text,
         )
 
