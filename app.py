@@ -272,7 +272,7 @@ def home():
             "建議保留一部分作為緊急預備金。"
         )
 
-            html = f"""
+    html = f"""
     <!DOCTYPE html>
     <html lang="zh-Hant">
     <head>
