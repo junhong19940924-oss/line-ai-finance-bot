@@ -2,6 +2,7 @@ import os
 import re
 from datetime import datetime
 from html import escape
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from flask import Flask, abort, request
@@ -17,6 +18,7 @@ from linebot.v3.messaging import (
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from supabase import Client, create_client
 
+
 app = Flask(__name__)
 
 LINE_CHANNEL_SECRET = os.environ["LINE_CHANNEL_SECRET"]
@@ -25,18 +27,18 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
+configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-configuration = Configuration(
-    access_token=LINE_CHANNEL_ACCESS_TOKEN
-)
+TAIPEI = ZoneInfo("Asia/Taipei")
 
-supabase: Client = create_client(
-    SUPABASE_URL,
-    SUPABASE_KEY,
-)
 
-def reply_line(event, text: str) -> None:
-    """Send exactly one LINE reply for the current event."""
+# ----------------------------
+# 共用工具
+# ----------------------------
+
+def reply_line(event: MessageEvent, text: str) -> None:
+    """Reply exactly once to the current LINE event."""
     with ApiClient(configuration) as api_client:
         messaging_api = MessagingApi(api_client)
         messaging_api.reply_message(
@@ -45,6 +47,15 @@ def reply_line(event, text: str) -> None:
                 messages=[TextMessage(text=text)],
             )
         )
+
+
+def parse_positive_int(value: str) -> int | None:
+    cleaned = value.replace(",", "").strip()
+    if not cleaned.isdigit():
+        return None
+
+    amount = int(cleaned)
+    return amount if amount > 0 else None
 
 
 def classify_expense(description: str) -> str:
@@ -86,21 +97,27 @@ def classify_expense(description: str) -> str:
     return "其他"
 
 
-def parse_transaction(user_text: str):
+def classify_debt(debt_name: str) -> str:
+    if "卡" in debt_name:
+        return "信用卡"
+    if "車貸" in debt_name or "機車貸" in debt_name:
+        return "車貸"
+    if "信貸" in debt_name or "信用貸款" in debt_name:
+        return "信貸"
+    if "房貸" in debt_name:
+        return "房貸"
+    return "其他"
+
+
+def parse_transaction(user_text: str) -> dict[str, Any] | None:
     text = user_text.strip()
 
-    amount_match = re.search(
-        r"(-?\d[\d,]*(?:\.\d+)?)",
-        text
-    )
-
+    amount_match = re.search(r"(-?\d[\d,]*(?:\.\d+)?)", text)
     if not amount_match:
         return None
 
     try:
-        amount = float(
-            amount_match.group(1).replace(",", "")
-        )
+        amount = float(amount_match.group(1).replace(",", ""))
     except ValueError:
         return None
 
@@ -122,17 +139,8 @@ def parse_transaction(user_text: str):
         description = "未填寫項目"
 
     income_keywords = [
-        "薪水",
-        "薪資",
-        "收入",
-        "獎金",
-        "年終",
-        "兼職",
-        "利息",
-        "股息",
-        "退款",
-        "入帳",
-        "收款",
+        "薪水", "薪資", "收入", "獎金", "年終", "兼職",
+        "利息", "股息", "退款", "入帳", "收款",
     ]
 
     transaction_type = (
@@ -155,21 +163,68 @@ def parse_transaction(user_text: str):
     }
 
 
+def get_user_debts(user_id: str) -> list[dict[str, Any]]:
+    response = (
+        supabase
+        .table("debts")
+        .select("*")
+        .eq("line_user_id", user_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return response.data or []
+
+
+def get_month_summary(user_id: str) -> tuple[float, float, float]:
+    current_month = datetime.now(TAIPEI).strftime("%Y-%m")
+
+    response = (
+        supabase
+        .table("transactions")
+        .select("type,amount,created_at")
+        .eq("line_user_id", user_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+
+    monthly_income = 0.0
+    monthly_expense = 0.0
+
+    for item in response.data or []:
+        created_at = str(item.get("created_at", ""))
+        if not created_at.startswith(current_month):
+            continue
+
+        amount = float(item.get("amount") or 0)
+        if item.get("type") == "收入":
+            monthly_income += amount
+        elif item.get("type") == "支出":
+            monthly_expense += amount
+
+    return (
+        monthly_income,
+        monthly_expense,
+        monthly_income - monthly_expense,
+    )
+
+
+# ----------------------------
+# Dashboard
+# ----------------------------
+
 @app.route("/", methods=["GET"])
 def home():
     try:
-        response = (
+        transaction_response = (
             supabase
             .table("transactions")
             .select("*")
             .order("created_at", desc=True)
             .execute()
         )
-
-        transactions = response.data or []
-
+        transactions = transaction_response.data or []
     except Exception as error:
-        print("Dashboard 讀取 Supabase 失敗：", error)
+        print("Dashboard 讀取 transactions 失敗：", error)
         transactions = []
 
     try:
@@ -180,11 +235,9 @@ def home():
             .order("created_at", desc=True)
             .execute()
         )
-
         debts = debt_response.data or []
-
     except Exception as error:
-        print("Dashboard 讀取負債失敗：", error)
+        print("Dashboard 讀取 debts 失敗：", error)
         debts = []
 
     total_debt = sum(
@@ -192,77 +245,47 @@ def home():
         for item in debts
     )
 
-    debt_records = []
-
-    for debt in debts:
-        debt_records.append(
-            {
-                "created_at": debt.get("created_at", ""),
-                "type": "負債",
-                "category": debt.get("debt_type") or "其他",
-                "description": debt.get("debt_name") or "未填寫",
-                "amount": debt.get("remaining_amount") or 0,
-            }
-        )
-
-    recent_items = transactions + debt_records
-
-    recent_items.sort(
-        key=lambda item: str(item.get("created_at", "")),
-        reverse=True,
-    )
-
-    taiwan_now = datetime.now(
-        ZoneInfo("Asia/Taipei")
-    )
-
-    current_month = taiwan_now.strftime("%Y-%m")
-
-    monthly_income = 0
-    monthly_expense = 0
+    current_month = datetime.now(TAIPEI).strftime("%Y-%m")
+    monthly_income = 0.0
+    monthly_expense = 0.0
 
     for item in transactions:
-        created_at = str(
-            item.get("created_at", "")
-        )
-
+        created_at = str(item.get("created_at", ""))
         if not created_at.startswith(current_month):
             continue
 
-        amount = float(
-            item.get("amount") or 0
-        )
-
+        amount = float(item.get("amount") or 0)
         if item.get("type") == "收入":
             monthly_income += amount
-
         elif item.get("type") == "支出":
             monthly_expense += amount
 
     monthly_balance = monthly_income - monthly_expense
 
+    debt_records = [
+        {
+            "created_at": debt.get("created_at", ""),
+            "type": "負債",
+            "category": debt.get("debt_type") or "其他",
+            "description": debt.get("debt_name") or "未填寫",
+            "amount": debt.get("remaining_amount") or 0,
+        }
+        for debt in debts
+    ]
+
+    recent_items = transactions + debt_records
+    recent_items.sort(
+        key=lambda item: str(item.get("created_at", "")),
+        reverse=True,
+    )
+
     recent_rows = ""
-
-    for item in recent_items[:10]:
-        created_at = str(
-            item.get("created_at", "")
-        )[:10]
-
-        description = escape(
-            str(item.get("description") or "未填寫")
-        )
-
-        category = escape(
-            str(item.get("category") or "未分類")
-        )
-
-        transaction_type = str(
-            item.get("type") or ""
-        )
-
-        amount = float(
-            item.get("amount") or 0
-        )
+    for item in recent_items[:12]:
+        created_at = str(item.get("created_at", ""))[:10]
+        description = escape(str(item.get("description") or "未填寫"))
+        category = escape(str(item.get("category") or "未分類"))
+        transaction_type = str(item.get("type") or "")
+        amount = float(item.get("amount") or 0)
 
         if transaction_type == "收入":
             amount_sign = "+"
@@ -295,32 +318,57 @@ def home():
         </tr>
         """
 
-    if monthly_income == 0 and monthly_expense == 0:
-        ai_advice = (
-            "目前尚未取得本月收支資料。"
-            "請先從 LINE 輸入記帳內容。"
-        )
+    debt_cards = ""
+    for debt in debts:
+        debt_name = escape(str(debt.get("debt_name") or "未命名負債"))
+        debt_type = escape(str(debt.get("debt_type") or "其他"))
+        original = float(debt.get("original_amount") or 0)
+        remaining = float(debt.get("remaining_amount") or 0)
+        paid = max(original - remaining, 0)
+        progress = (paid / original * 100) if original > 0 else 0
+        progress = min(max(progress, 0), 100)
 
+        debt_cards += f"""
+        <div class="debt-item">
+            <div class="debt-row">
+                <div>
+                    <strong>{debt_name}</strong>
+                    <div class="muted">{debt_type}</div>
+                </div>
+                <div class="debt-amount">
+                    NT$ {remaining:,.0f}
+                </div>
+            </div>
+            <div class="progress">
+                <div class="progress-bar" style="width: {progress:.1f}%"></div>
+            </div>
+            <div class="muted">
+                已還 {progress:.0f}% · 原始 NT$ {original:,.0f}
+            </div>
+        </div>
+        """
+
+    if not debt_cards:
+        debt_cards = '<div class="muted">尚未建立負債資料。</div>'
+
+    if monthly_income == 0 and monthly_expense == 0:
+        ai_advice = "目前尚未取得本月收支資料，請先從 LINE 輸入記帳內容。"
     elif monthly_expense > monthly_income:
         ai_advice = (
-            "本月支出目前高於收入，"
-            "建議先檢查非必要支出，"
+            "本月支出目前高於收入，建議先檢查非必要支出，"
             "並設定每週可使用的預算。"
         )
-
     elif monthly_expense >= monthly_income * 0.8:
         ai_advice = (
             "本月支出已接近收入的 80%，"
             "建議控制接下來的娛樂及購物支出。"
         )
-
     else:
         savings_rate = (
             monthly_balance / monthly_income * 100
             if monthly_income > 0
             else 0
         )
-
         ai_advice = (
             f"本月目前結餘 NT$ {monthly_balance:,.0f}，"
             f"結餘率約 {savings_rate:.0f}%。"
@@ -332,127 +380,117 @@ def home():
     <html lang="zh-Hant">
     <head>
         <meta charset="UTF-8">
-        <meta
-            name="viewport"
-            content="width=device-width, initial-scale=1.0"
-        >
-
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>AI 財務管家</title>
-
         <style>
             * {{
                 box-sizing: border-box;
                 margin: 0;
                 padding: 0;
             }}
-
             body {{
                 font-family: Arial, "Microsoft JhengHei", sans-serif;
                 background: #f4f6f9;
                 color: #1f2937;
             }}
-
             .header {{
-                background: linear-gradient(
-                    135deg,
-                    #0f766e,
-                    #14532d
-                );
+                background: linear-gradient(135deg, #0f766e, #14532d);
                 color: white;
                 padding: 32px 20px;
             }}
-
             .container {{
                 width: 92%;
                 max-width: 1100px;
                 margin: auto;
             }}
-
             .header h1 {{
                 font-size: 30px;
                 margin-bottom: 8px;
             }}
-
             .header p {{
                 opacity: 0.9;
             }}
-
             .summary {{
                 display: grid;
-                grid-template-columns:
-                    repeat(4, 1fr);
+                grid-template-columns: repeat(4, 1fr);
                 gap: 16px;
                 margin-top: 25px;
             }}
-
-            .card {{
+            .card, .section {{
                 background: white;
                 border-radius: 14px;
-                padding: 22px;
-                box-shadow:
-                    0 4px 15px
-                    rgba(0, 0, 0, 0.06);
+                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.06);
             }}
-
-            .card-title {{
+            .card {{
+                padding: 22px;
+            }}
+            .card-title, .muted {{
                 color: #6b7280;
                 font-size: 14px;
+            }}
+            .card-title {{
                 margin-bottom: 10px;
             }}
-
             .amount {{
                 font-size: 26px;
                 font-weight: bold;
             }}
-
-            .income {{
-                color: #15803d;
-            }}
-
-            .expense {{
-                color: #dc2626;
-            }}
-
-            .balance {{
-                color: #2563eb;
-            }}
-
-            .debt {{
-                color: #b45309;
-            }}
-
+            .income {{ color: #15803d; }}
+            .expense {{ color: #dc2626; }}
+            .balance {{ color: #2563eb; }}
+            .debt {{ color: #b45309; }}
             .section {{
-                background: white;
                 margin-top: 22px;
                 padding: 24px;
-                border-radius: 14px;
-                box-shadow:
-                    0 4px 15px
-                    rgba(0, 0, 0, 0.05);
             }}
-
             .section h2 {{
                 margin-bottom: 18px;
             }}
-
             table {{
                 width: 100%;
                 border-collapse: collapse;
             }}
-
-            th,
-            td {{
+            th, td {{
                 padding: 13px;
                 text-align: left;
-                border-bottom:
-                    1px solid #e5e7eb;
+                border-bottom: 1px solid #e5e7eb;
             }}
-
             th {{
                 color: #6b7280;
                 font-size: 14px;
             }}
-
+            .debt-grid {{
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 14px;
+            }}
+            .debt-item {{
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+                padding: 16px;
+            }}
+            .debt-row {{
+                display: flex;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 12px;
+            }}
+            .debt-amount {{
+                color: #b45309;
+                font-weight: bold;
+                white-space: nowrap;
+            }}
+            .progress {{
+                height: 10px;
+                background: #e5e7eb;
+                border-radius: 999px;
+                overflow: hidden;
+                margin-bottom: 8px;
+            }}
+            .progress-bar {{
+                height: 100%;
+                background: #0f766e;
+            }}
             .status {{
                 display: inline-block;
                 background: #dcfce7;
@@ -461,112 +499,75 @@ def home():
                 border-radius: 20px;
                 font-size: 14px;
             }}
-
             .ai-box {{
                 background: #f0fdfa;
-                border-left:
-                    5px solid #0f766e;
+                border-left: 5px solid #0f766e;
                 padding: 18px;
                 border-radius: 8px;
                 line-height: 1.8;
             }}
-
             .footer {{
                 text-align: center;
                 color: #9ca3af;
                 padding: 30px;
                 font-size: 13px;
             }}
-
-            @media (
-                max-width: 800px
-            ) {{
-                .summary {{
-                    grid-template-columns:
-                        repeat(2, 1fr);
+            @media (max-width: 800px) {{
+                .summary, .debt-grid {{
+                    grid-template-columns: repeat(2, 1fr);
                 }}
             }}
-
-            @media (
-                max-width: 500px
-            ) {{
-                .summary {{
+            @media (max-width: 560px) {{
+                .summary, .debt-grid {{
                     grid-template-columns: 1fr;
                 }}
-
                 .amount {{
                     font-size: 22px;
                 }}
-
                 table {{
                     font-size: 13px;
                 }}
-
-                th,
-                td {{
+                th, td {{
                     padding: 8px;
                 }}
             }}
         </style>
     </head>
-
     <body>
         <div class="header">
             <div class="container">
                 <h1>AI 財務管家</h1>
-
-                <p>
-                    記帳、收支分析與負債管理
-                </p>
+                <p>記帳、收支分析與負債管理</p>
             </div>
         </div>
 
         <div class="container">
             <div class="summary">
                 <div class="card">
-                    <div class="card-title">
-                        本月收入
-                    </div>
-
-                    <div class="amount income">
-                        NT$ {monthly_income:,.0f}
-                    </div>
+                    <div class="card-title">本月收入</div>
+                    <div class="amount income">NT$ {monthly_income:,.0f}</div>
                 </div>
-
                 <div class="card">
-                    <div class="card-title">
-                        本月支出
-                    </div>
-
-                    <div class="amount expense">
-                        NT$ {monthly_expense:,.0f}
-                    </div>
+                    <div class="card-title">本月支出</div>
+                    <div class="amount expense">NT$ {monthly_expense:,.0f}</div>
                 </div>
-
                 <div class="card">
-                    <div class="card-title">
-                        本月結餘
-                    </div>
-
-                    <div class="amount balance">
-                        NT$ {monthly_balance:,.0f}
-                    </div>
+                    <div class="card-title">本月結餘</div>
+                    <div class="amount balance">NT$ {monthly_balance:,.0f}</div>
                 </div>
-
                 <div class="card">
-                    <div class="card-title">
-                        總負債
-                    </div>
-
-                    <div class="amount debt">
-                        NT$ {total_debt:,.0f}
-                    </div>
+                    <div class="card-title">總負債</div>
+                    <div class="amount debt">NT$ {total_debt:,.0f}</div>
                 </div>
             </div>
 
             <div class="section">
-                <h2>最近記帳紀錄</h2>
+                <h2>負債管理</h2>
+                <div class="debt-grid">{debt_cards}</div>
+            </div>
 
+            <div class="section">
+                <h2>最近記帳紀錄</h2>
                 <table>
                     <thead>
                         <tr>
@@ -576,45 +577,30 @@ def home():
                             <th>金額</th>
                         </tr>
                     </thead>
-
-                    <tbody>
-                        {recent_rows}
-                    </tbody>
+                    <tbody>{recent_rows}</tbody>
                 </table>
             </div>
 
             <div class="section">
                 <h2>LINE Bot 狀態</h2>
-
-                <span class="status">
-                    系統運作中
-                </span>
-
-                <p
-                    style="
-                        margin-top: 12px;
-                        color: #6b7280;
-                    "
-                >
-                    可在 LINE 輸入：
-                    「早餐 85」、
-                    「加油 500」或
-                    「薪水 70000」、「負債 玉山信用卡 40000」或「還款 玉山信用卡 3000」。
+                <span class="status">系統運作中</span>
+                <p style="margin-top:12px;color:#6b7280;line-height:1.8;">
+                    支出：早餐 85<br>
+                    收入：薪水 70000<br>
+                    負債：負債 玉山信用卡 40000<br>
+                    還款：還款 玉山信用卡 3000<br>
+                    查詢：本月、負債查詢、幫助
                 </p>
             </div>
 
             <div class="section">
                 <h2>AI 財務建議</h2>
-
-                <div class="ai-box">
-                    {ai_advice}
-                </div>
+                <div class="ai-box">{ai_advice}</div>
             </div>
         </div>
 
         <div class="footer">
-            AI Finance Manager
-            · Powered by LINE Bot
+            AI Finance Manager · Powered by LINE Bot
         </div>
     </body>
     </html>
@@ -628,25 +614,20 @@ def health():
     return {"status": "ok"}, 200
 
 
+# ----------------------------
+# LINE Webhook
+# ----------------------------
+
 @app.route("/callback", methods=["POST"])
 def callback():
-    signature = request.headers.get(
-        "X-Line-Signature"
-    )
-
-    body = request.get_data(
-        as_text=True
-    )
+    signature = request.headers.get("X-Line-Signature")
+    body = request.get_data(as_text=True)
 
     if not signature:
         abort(400)
 
     try:
-        handler.handle(
-            body,
-            signature,
-        )
-
+        handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
 
@@ -657,41 +638,88 @@ def callback():
     MessageEvent,
     message=TextMessageContent,
 )
-def handle_message(event):
+def handle_message(event: MessageEvent):
     user_text = event.message.text.strip()
     user_id = event.source.user_id
 
-    # 還款指令優先處理。
-    # 格式：還款 玉山信用卡 3000
-    if user_text.startswith("還款"):
-        repayment_match = re.match(
-            r"^還款\s+(.+?)\s+(\d[\d,]*)\s*$",
-            user_text,
+    # 幫助
+    if user_text in {"幫助", "help", "Help", "HELP"}:
+        reply_line(
+            event,
+            "📘 使用方式\n\n"
+            "支出：早餐 85\n"
+            "收入：薪水 70000\n"
+            "負債：負債 玉山信用卡 40000\n"
+            "還款：還款 玉山信用卡 3000\n"
+            "查詢：本月\n"
+            "查詢：負債查詢",
+        )
+        return
+
+    # 本月收支查詢
+    if user_text in {"本月", "本月收支", "收支查詢"}:
+        try:
+            income, expense, balance = get_month_summary(user_id)
+        except Exception as error:
+            print("本月查詢失敗：", error)
+            reply_line(event, "本月資料查詢失敗，請稍後再試。")
+            return
+
+        reply_line(
+            event,
+            f"📊 本月收支\n"
+            f"收入：NT$ {income:,.0f}\n"
+            f"支出：NT$ {expense:,.0f}\n"
+            f"結餘：NT$ {balance:,.0f}",
+        )
+        return
+
+    # 負債查詢
+    if user_text in {"負債查詢", "我的負債", "總負債"}:
+        try:
+            debts = get_user_debts(user_id)
+        except Exception as error:
+            print("負債查詢失敗：", error)
+            reply_line(event, "負債查詢失敗，請稍後再試。")
+            return
+
+        active_debts = [
+            debt for debt in debts
+            if int(debt.get("remaining_amount") or 0) > 0
+        ]
+
+        if not active_debts:
+            reply_line(event, "目前沒有未清償負債。")
+            return
+
+        total = sum(
+            int(debt.get("remaining_amount") or 0)
+            for debt in active_debts
         )
 
-        if not repayment_match:
-            reply_line(
-                event,
-                "格式錯誤\n請輸入：還款 名稱 金額\n"
-                "例如：還款 玉山信用卡 3000",
+        lines = ["💳 目前負債"]
+        for debt in active_debts[:10]:
+            lines.append(
+                f"{debt.get('debt_name') or '未命名'}："
+                f"NT$ {int(debt.get('remaining_amount') or 0):,}"
             )
-            return
+        lines.append(f"\n總負債：NT$ {total:,}")
 
+        reply_line(event, "\n".join(lines))
+        return
+
+    # 還款
+    repayment_match = re.match(
+        r"^還款\s+(.+?)\s+(\d[\d,]*)\s*$",
+        user_text,
+    )
+
+    if repayment_match:
         debt_name = repayment_match.group(1).strip()
+        payment_amount = parse_positive_int(repayment_match.group(2))
 
-        try:
-            payment_amount = int(
-                repayment_match.group(2).replace(",", "")
-            )
-        except ValueError:
-            reply_line(
-                event,
-                "金額格式錯誤\n例如：還款 玉山信用卡 3000",
-            )
-            return
-
-        if payment_amount <= 0:
-            reply_line(event, "還款金額必須大於 0")
+        if payment_amount is None:
+            reply_line(event, "還款金額必須是大於 0 的整數。")
             return
 
         try:
@@ -705,10 +733,8 @@ def handle_message(event):
                 .limit(1)
                 .execute()
             )
-
             matched_debts = debt_response.data or []
 
-            # Exact match failed: try a contains match.
             if not matched_debts:
                 debt_response = (
                     supabase
@@ -726,29 +752,23 @@ def handle_message(event):
                 reply_line(
                     event,
                     f"找不到負債：{debt_name}\n"
-                    "請確認名稱是否和新增時相同。",
+                    "請先輸入「負債 名稱 金額」。",
                 )
                 return
 
             debt = matched_debts[0]
             debt_id = debt.get("id")
-            current_remaining = int(
-                debt.get("remaining_amount") or 0
-            )
+            display_name = debt.get("debt_name") or debt_name
+            current_remaining = int(debt.get("remaining_amount") or 0)
 
             if current_remaining <= 0:
-                reply_line(
-                    event,
-                    f"{debt.get('debt_name') or debt_name} 已經還清。",
-                )
+                reply_line(event, f"{display_name} 已經還清。")
                 return
 
-            actual_payment = min(
-                payment_amount,
-                current_remaining,
-            )
+            actual_payment = min(payment_amount, current_remaining)
             new_remaining = current_remaining - actual_payment
 
+            # 先更新負債，再寫入支出；若支出寫入失敗就回復負債。
             supabase.table("debts").update(
                 {
                     "remaining_amount": new_remaining,
@@ -756,89 +776,74 @@ def handle_message(event):
                 }
             ).eq("id", debt_id).execute()
 
-            # 還款屬於現金流支出，因此同步寫入 transactions。
-            supabase.table("transactions").insert(
-                {
-                    "line_user_id": user_id,
-                    "type": "支出",
-                    "category": "貸款",
-                    "amount": actual_payment,
-                    "description": (
-                        f"還款 {debt.get('debt_name') or debt_name}"
-                    ),
-                }
-            ).execute()
+            try:
+                supabase.table("transactions").insert(
+                    {
+                        "line_user_id": user_id,
+                        "type": "支出",
+                        "category": "貸款",
+                        "amount": actual_payment,
+                        "description": f"還款 {display_name}",
+                    }
+                ).execute()
+            except Exception:
+                supabase.table("debts").update(
+                    {
+                        "remaining_amount": current_remaining,
+                        "monthly_payment": int(
+                            debt.get("monthly_payment") or 0
+                        ),
+                    }
+                ).eq("id", debt_id).execute()
+                raise
 
         except Exception as error:
             print("還款處理失敗：", error)
-            reply_line(
-                event,
-                "還款失敗，系統已記錄錯誤，請稍後再試。",
-            )
+            reply_line(event, "還款失敗，系統已記錄錯誤，請稍後再試。")
             return
 
         extra_note = ""
         if payment_amount > current_remaining:
-            extra_note = (
-                f"\n輸入金額超過剩餘負債，"
-                f"本次實際還款 NT$ {actual_payment:,}"
-            )
+            extra_note = "\n輸入金額超過剩餘負債，已自動以剩餘金額結清。"
 
         reply_line(
             event,
             f"💰 已記錄還款\n"
-            f"名稱：{debt.get('debt_name') or debt_name}\n"
+            f"名稱：{display_name}\n"
             f"還款金額：NT$ {actual_payment:,}\n"
             f"剩餘負債：NT$ {new_remaining:,}"
             f"{extra_note}",
         )
         return
 
-    # 負債指令優先處理，避免被一般記帳解析器誤判成支出。
-    # 可接受：
-    # 新增負債 玉山信用卡 40000
-    # 新增負債玉山信用卡40000
-    # 負債 玉山信用卡 40,000
-    if user_text.startswith(("新增負債", "負債")):
-        debt_match = re.match(
-            r"^負債\s+(.+?)\s+(\d[\d,]*)\s*$",
-            user_text,
+    if user_text.startswith("還款"):
+        reply_line(
+            event,
+            "格式錯誤\n請輸入：還款 名稱 金額\n"
+            "例如：還款 玉山信用卡 3000",
         )
+        return
 
-        if not debt_match:
-            reply_line(
-                event,
-                "格式錯誤\n請輸入：新增負債 名稱 金額\n"
-                "例如：新增負債 玉山信用卡 40000",
-            )
-            return
+    # 新增負債：固定使用「負債 名稱 金額」
+    debt_match = re.match(
+        r"^負債\s+(.+?)\s+(\d[\d,]*)\s*$",
+        user_text,
+    )
 
+    if debt_match:
         debt_name = debt_match.group(1).strip()
+        amount = parse_positive_int(debt_match.group(2))
 
-        try:
-            amount = int(debt_match.group(2).replace(",", ""))
-        except ValueError:
-            reply_line(event, "金額格式錯誤\n例如：新增負債 玉山信用卡 40000")
+        if amount is None:
+            reply_line(event, "負債金額必須是大於 0 的整數。")
             return
-
-        if amount <= 0:
-            reply_line(event, "負債金額必須大於 0")
-            return
-
-        debt_type = (
-            "信用卡" if "卡" in debt_name
-            else "車貸" if "車貸" in debt_name or "機車貸" in debt_name
-            else "信貸" if "信貸" in debt_name or "信用貸款" in debt_name
-            else "房貸" if "房貸" in debt_name
-            else "其他"
-        )
 
         try:
             supabase.table("debts").insert(
                 {
                     "line_user_id": user_id,
                     "debt_name": debt_name,
-                    "debt_type": debt_type,
+                    "debt_type": classify_debt(debt_name),
                     "original_amount": amount,
                     "remaining_amount": amount,
                     "monthly_payment": 0,
@@ -853,11 +858,20 @@ def handle_message(event):
             event,
             f"💳 已新增負債\n"
             f"名稱：{debt_name}\n"
-            f"類型：{debt_type}\n"
+            f"類型：{classify_debt(debt_name)}\n"
             f"剩餘金額：NT$ {amount:,}",
         )
         return
 
+    if user_text.startswith("負債"):
+        reply_line(
+            event,
+            "格式錯誤\n請輸入：負債 名稱 金額\n"
+            "例如：負債 玉山信用卡 40000",
+        )
+        return
+
+    # 一般收支
     transaction = parse_transaction(user_text)
 
     if transaction is None:
@@ -869,7 +883,8 @@ def handle_message(event):
             "加油 500\n"
             "薪水 70000\n"
             "負債 玉山信用卡 40000\n"
-            "還款 玉山信用卡 3000",
+            "還款 玉山信用卡 3000\n"
+            "或輸入「幫助」。",
         )
         return
 
@@ -900,14 +915,5 @@ def handle_message(event):
 
 
 if __name__ == "__main__":
-    port = int(
-        os.environ.get(
-            "PORT",
-            5000,
-        )
-    )
-
-    app.run(
-        host="0.0.0.0",
-        port=port,
-    )
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
