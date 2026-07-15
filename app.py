@@ -180,7 +180,7 @@ def home():
         for item in debts
     )
 
-        debt_records = []
+    debt_records = []
 
     for debt in debts:
         debt_records.append(
