@@ -1898,6 +1898,140 @@ def admin_page(message: str = "") -> str:
     if not rows:
         rows = '<tr><td colspan="7">目前沒有記帳資料。</td></tr>'
 
+    try:
+        personal_banks = get_bank_balances("個人")
+        jinjia_banks = get_bank_balances("金家")
+    except Exception:
+        personal_banks = {
+            name: {"balance": 0, "updated_at": None}
+            for name in PERSONAL_BANKS
+        }
+        jinjia_banks = {
+            name: {"balance": 0, "updated_at": None}
+            for name in JINJIA_BANKS
+        }
+
+    bank_forms = ""
+    for owner, balances in (
+        ("個人", personal_banks),
+        ("金家", jinjia_banks),
+    ):
+        for bank_name, values in balances.items():
+            balance = int(values.get("balance") or 0)
+            bank_forms += f"""
+            <form method="post" action="/admin/bank/update" class="edit-row">
+                <input type="hidden" name="owner" value="{escape(owner)}">
+                <input type="hidden" name="bank_name" value="{escape(bank_name)}">
+                <strong>{escape(bank_name)}</strong>
+                <input type="number" min="0" name="balance" value="{balance}" required>
+                <button type="submit">儲存</button>
+            </form>
+            """
+
+    try:
+        cards = get_credit_cards()
+    except Exception:
+        cards = {
+            name: {
+                "total_limit": 0,
+                "available_limit": 0,
+                "statement_day": 0,
+                "due_day": 0,
+                "statement_amount": 0,
+                "payment_status": "未繳交",
+            }
+            for name in CREDIT_CARDS
+        }
+
+    credit_forms = ""
+    for card_name, values in cards.items():
+        status = str(values.get("payment_status") or "未繳交")
+        credit_forms += f"""
+        <form method="post" action="/admin/credit-card/update" class="credit-form">
+            <input type="hidden" name="card_name" value="{escape(card_name)}">
+            <h3>{escape(card_name)}</h3>
+            <label>總額度<input type="number" min="0" name="total_limit"
+                value="{int(values.get('total_limit') or 0)}" required></label>
+            <label>可用額度<input type="number" min="0" name="available_limit"
+                value="{int(values.get('available_limit') or 0)}" required></label>
+            <label>結帳日<input type="number" min="1" max="31" name="statement_day"
+                value="{int(values.get('statement_day') or 0) or ''}"></label>
+            <label>繳款日<input type="number" min="1" max="31" name="due_day"
+                value="{int(values.get('due_day') or 0) or ''}"></label>
+            <label>本期應繳<input type="number" min="0" name="statement_amount"
+                value="{int(values.get('statement_amount') or 0)}" required></label>
+            <label>狀態
+                <select name="payment_status">
+                    <option value="未繳交" {'selected' if status == '未繳交' else ''}>未繳交</option>
+                    <option value="已繳交" {'selected' if status == '已繳交' else ''}>已繳交</option>
+                </select>
+            </label>
+            <button type="submit">儲存信用卡資料</button>
+        </form>
+        """
+
+    current_month = datetime.now(TAIPEI).strftime("%Y-%m")
+    try:
+        jinjia_items = get_jinjia_statuses(current_month)
+    except Exception:
+        jinjia_items = []
+
+    jinjia_forms = ""
+    for item in jinjia_items:
+        item_type = str(item.get("item_type") or "")
+        item_name = str(item.get("item_name") or "")
+        status = str(item.get("status") or "未繳交")
+        amount = int(item.get("amount") or 0)
+        jinjia_forms += f"""
+        <form method="post" action="/admin/jinjia-status/update" class="edit-row status-edit">
+            <input type="hidden" name="month" value="{escape(current_month)}">
+            <input type="hidden" name="item_type" value="{escape(item_type)}">
+            <input type="hidden" name="item_name" value="{escape(item_name)}">
+            <strong>{escape(item_type)}｜{escape(item_name)}</strong>
+            <select name="status">
+                <option value="未繳交" {'selected' if status == '未繳交' else ''}>未繳交</option>
+                <option value="已繳交" {'selected' if status == '已繳交' else ''}>已繳交</option>
+            </select>
+            <input type="number" min="0" name="amount" value="{amount}" required>
+            <button type="submit">儲存</button>
+        </form>
+        """
+
+    try:
+        debt_response = (
+            supabase
+            .table("debts")
+            .select("*")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        admin_debts = debt_response.data or []
+    except Exception:
+        admin_debts = []
+
+    debt_rows = ""
+    for debt in admin_debts:
+        debt_id = escape(str(debt.get("id") or ""))
+        debt_rows += f"""
+        <form method="post" action="/admin/debt/{debt_id}/update" class="debt-form">
+            <input name="debt_name" value="{escape(str(debt.get('debt_name') or ''))}" required>
+            <input name="debt_type" value="{escape(str(debt.get('debt_type') or '其他'))}" required>
+            <input type="number" min="0" name="original_amount"
+                value="{int(debt.get('original_amount') or 0)}" required>
+            <input type="number" min="0" name="remaining_amount"
+                value="{int(debt.get('remaining_amount') or 0)}" required>
+            <input type="number" min="0" name="monthly_payment"
+                value="{int(debt.get('monthly_payment') or 0)}" required>
+            <button type="submit">儲存</button>
+            <button type="submit" class="danger"
+                formaction="/admin/debt/{debt_id}/delete"
+                onclick="return confirm('確定刪除這筆負債？')">刪除</button>
+        </form>
+        """
+
+    if not debt_rows:
+        debt_rows = '<p>目前沒有負債資料。</p>'
+
     notice = f'<div class="notice">{escape(message)}</div>' if message else ""
 
     return f"""
@@ -1926,6 +2060,22 @@ def admin_page(message: str = "") -> str:
             .actions form {{margin:0}}
             .notice {{background:#e8f3ff;padding:12px;border-radius:12px;margin-bottom:14px}}
             .top {{display:flex;justify-content:space-between;align-items:center;gap:12px}}
+            .edit-row {{display:grid;grid-template-columns:2fr 1fr auto;gap:10px;
+            align-items:center;padding:10px 0;border-bottom:1px solid #eee}}
+            .credit-grid {{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}}
+            .credit-form {{border:1px solid #eee;padding:16px;border-radius:16px}}
+            .credit-form label {{display:block;font-size:13px;margin-top:8px}}
+            .credit-form input,.credit-form select {{width:100%;margin-top:4px}}
+            .debt-form {{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto auto;
+            gap:8px;padding:10px 0;border-bottom:1px solid #eee}}
+            .status-edit {{grid-template-columns:2fr 1fr 1fr auto}}
+            .section-nav {{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 20px}}
+            .section-nav a {{text-decoration:none;background:#eef5ff;color:#007aff;
+            padding:8px 10px;border-radius:10px;font-weight:700}}
+            @media(max-width:900px) {{
+                .credit-grid {{grid-template-columns:1fr}}
+                .debt-form {{grid-template-columns:1fr 1fr}}
+            }}
             @media(max-width:760px) {{
                 .grid {{grid-template-columns:1fr}}
                 th,td {{font-size:13px;white-space:nowrap}}
@@ -1959,7 +2109,43 @@ def admin_page(message: str = "") -> str:
                     <button type="submit">新增</button>
                 </form>
             </div>
-            <div class="card">
+            <div class="section-nav">
+                <a href="#banks">銀行</a>
+                <a href="#cards">信用卡</a>
+                <a href="#jinjia">金家狀態</a>
+                <a href="#debts">負債</a>
+                <a href="#transactions">記帳</a>
+            </div>
+
+            <div class="card" id="banks">
+                <h2>銀行餘額管理</h2>
+                {bank_forms}
+            </div>
+
+            <div class="card" id="cards">
+                <h2>信用卡完整管理</h2>
+                <div class="credit-grid">{credit_forms}</div>
+            </div>
+
+            <div class="card" id="jinjia">
+                <h2>金家帳單與人物狀態（{current_month}）</h2>
+                {jinjia_forms or '<p>目前沒有金家狀態資料。</p>'}
+            </div>
+
+            <div class="card" id="debts">
+                <h2>負債完整管理</h2>
+                <form method="post" action="/admin/debt/add" class="debt-form">
+                    <input name="debt_name" required placeholder="負債名稱">
+                    <input name="debt_type" required placeholder="類型">
+                    <input type="number" min="0" name="original_amount" required placeholder="原始金額">
+                    <input type="number" min="0" name="remaining_amount" required placeholder="剩餘金額">
+                    <input type="number" min="0" name="monthly_payment" value="0" required placeholder="月還款">
+                    <button type="submit">新增</button>
+                </form>
+                {debt_rows}
+            </div>
+
+            <div class="card" id="transactions">
                 <h2>最近 100 筆記帳</h2>
                 <div class="table-wrap">
                     <table>
@@ -2126,6 +2312,168 @@ def admin_delete_transaction(transaction_id: str):
         return redirect(url_for("admin_home", message=f"刪除失敗：{error}"))
 
     return redirect(url_for("admin_home", message="刪除成功。"))
+
+
+@app.route("/admin/bank/update", methods=["POST"])
+def admin_update_bank():
+    if not admin_logged_in():
+        return redirect(url_for("admin_home"))
+
+    owner = request.form.get("owner", "")
+    bank_name = normalize_bank_name(request.form.get("bank_name", ""))
+    balance_text = request.form.get("balance", "").replace(",", "").strip()
+
+    if owner not in {"個人", "金家"} or not bank_name or not balance_text.isdigit():
+        return redirect(url_for("admin_home", message="銀行資料格式錯誤。"))
+
+    try:
+        set_bank_balance(owner, bank_name, int(balance_text))
+    except Exception as error:
+        return redirect(url_for("admin_home", message=f"銀行更新失敗：{error}"))
+
+    return redirect(url_for("admin_home", message=f"{bank_name}已更新。"))
+
+
+@app.route("/admin/credit-card/update", methods=["POST"])
+def admin_update_credit_card():
+    if not admin_logged_in():
+        return redirect(url_for("admin_home"))
+
+    card_name = request.form.get("card_name", "")
+    try:
+        total_limit = int(request.form.get("total_limit", "0"))
+        available_limit = int(request.form.get("available_limit", "0"))
+        statement_day_text = request.form.get("statement_day", "").strip()
+        due_day_text = request.form.get("due_day", "").strip()
+        statement_day = int(statement_day_text) if statement_day_text else 0
+        due_day = int(due_day_text) if due_day_text else 0
+        statement_amount = int(request.form.get("statement_amount", "0"))
+        payment_status = request.form.get("payment_status", "未繳交")
+
+        set_credit_card_values(
+            card_name,
+            total_limit=total_limit,
+            available_limit=available_limit,
+            statement_day=statement_day,
+            due_day=due_day,
+            statement_amount=statement_amount,
+            payment_status=payment_status,
+        )
+    except Exception as error:
+        return redirect(url_for("admin_home", message=f"信用卡更新失敗：{error}"))
+
+    return redirect(url_for("admin_home", message=f"{card_name}已更新。"))
+
+
+@app.route("/admin/jinjia-status/update", methods=["POST"])
+def admin_update_jinjia_status():
+    if not admin_logged_in():
+        return redirect(url_for("admin_home"))
+
+    try:
+        month = request.form.get("month", "")
+        item_type = request.form.get("item_type", "")
+        item_name = request.form.get("item_name", "")
+        status = request.form.get("status", "未繳交")
+        amount = int(request.form.get("amount", "0"))
+
+        if item_type not in {"帳單", "人物"}:
+            raise ValueError("類型錯誤")
+        if status not in {"已繳交", "未繳交"}:
+            raise ValueError("狀態錯誤")
+        if amount < 0:
+            raise ValueError("金額不可小於 0")
+
+        update_jinjia_status(
+            month,
+            item_type,
+            item_name,
+            status,
+            amount,
+        )
+    except Exception as error:
+        return redirect(url_for("admin_home", message=f"金家狀態更新失敗：{error}"))
+
+    return redirect(url_for("admin_home", message=f"{item_name}已更新。"))
+
+
+@app.route("/admin/debt/add", methods=["POST"])
+def admin_add_debt():
+    if not admin_logged_in():
+        return redirect(url_for("admin_home"))
+
+    try:
+        original_amount = int(request.form.get("original_amount", "0"))
+        remaining_amount = int(request.form.get("remaining_amount", "0"))
+        monthly_payment = int(request.form.get("monthly_payment", "0"))
+        if min(original_amount, remaining_amount, monthly_payment) < 0:
+            raise ValueError("金額不可小於 0")
+
+        (
+            supabase
+            .table("debts")
+            .insert(
+                {
+                    "line_user_id": "WEB_ADMIN",
+                    "debt_name": request.form.get("debt_name", "").strip(),
+                    "debt_type": request.form.get("debt_type", "其他").strip(),
+                    "original_amount": original_amount,
+                    "remaining_amount": remaining_amount,
+                    "monthly_payment": monthly_payment,
+                }
+            )
+            .execute()
+        )
+    except Exception as error:
+        return redirect(url_for("admin_home", message=f"新增負債失敗：{error}"))
+
+    return redirect(url_for("admin_home", message="負債新增成功。"))
+
+
+@app.route("/admin/debt/<debt_id>/update", methods=["POST"])
+def admin_update_debt(debt_id: str):
+    if not admin_logged_in():
+        return redirect(url_for("admin_home"))
+
+    try:
+        original_amount = int(request.form.get("original_amount", "0"))
+        remaining_amount = int(request.form.get("remaining_amount", "0"))
+        monthly_payment = int(request.form.get("monthly_payment", "0"))
+        if min(original_amount, remaining_amount, monthly_payment) < 0:
+            raise ValueError("金額不可小於 0")
+
+        (
+            supabase
+            .table("debts")
+            .update(
+                {
+                    "debt_name": request.form.get("debt_name", "").strip(),
+                    "debt_type": request.form.get("debt_type", "其他").strip(),
+                    "original_amount": original_amount,
+                    "remaining_amount": remaining_amount,
+                    "monthly_payment": monthly_payment,
+                }
+            )
+            .eq("id", debt_id)
+            .execute()
+        )
+    except Exception as error:
+        return redirect(url_for("admin_home", message=f"負債更新失敗：{error}"))
+
+    return redirect(url_for("admin_home", message="負債已更新。"))
+
+
+@app.route("/admin/debt/<debt_id>/delete", methods=["POST"])
+def admin_delete_debt(debt_id: str):
+    if not admin_logged_in():
+        return redirect(url_for("admin_home"))
+
+    try:
+        supabase.table("debts").delete().eq("id", debt_id).execute()
+    except Exception as error:
+        return redirect(url_for("admin_home", message=f"負債刪除失敗：{error}"))
+
+    return redirect(url_for("admin_home", message="負債已刪除。"))
 
 
 @app.route("/health", methods=["GET"])
