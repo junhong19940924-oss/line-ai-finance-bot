@@ -382,6 +382,8 @@ PERSONAL_BANKS = (
     "LINE Pay Money",
 )
 JINJIA_BANKS = ("王道銀行",)
+JINJIA_BILLS = ("網路費", "水費", "電費")
+JINJIA_PEOPLE = ("俊宏", "俊億", "宗暉")
 ALL_BANKS = PERSONAL_BANKS + JINJIA_BANKS
 
 
@@ -1697,33 +1699,74 @@ def home():
 
             <div class="section">
                 <div class="account-header">
-                    <h2>LINE 指令表</h2>
+                    <h2>LINE 指令總表</h2>
                     <a class="account-badge" href="/admin"
                        style="text-decoration:none;">開啟網頁管理</a>
                 </div>
+
+                <h3 style="margin:8px 0 12px;">① 記帳與修改</h3>
                 <div class="table-wrap">
                     <table>
-                        <thead>
-                            <tr><th>功能</th><th>指令格式</th><th>範例</th></tr>
-                        </thead>
+                        <thead><tr><th>功能</th><th>格式</th><th>直接照著打</th></tr></thead>
                         <tbody>
-                            <tr><td>個人支出</td><td>項目 金額</td><td>早餐 85</td></tr>
-                            <tr><td>個人收入</td><td>收入項目 金額</td><td>薪水 55000</td></tr>
-                            <tr><td>金家收入</td><td>金家收入 金額</td><td>金家收入 4500</td></tr>
-                            <tr><td>金家支出</td><td>金家支出 項目 金額</td><td>金家支出 材料 3000</td></tr>
-                            <tr><td>刷卡</td><td>刷卡 項目 金額</td><td>刷卡 電影 500</td></tr>
-                            <tr><td>負債</td><td>負債 名稱 金額</td><td>負債 車貸 180000</td></tr>
-                            <tr><td>還款</td><td>還款 名稱 金額</td><td>還款 車貸 5000</td></tr>
-                            <tr><td>銀行餘額</td><td>設定 銀行 金額</td><td>設定 中國信託 215</td></tr>
-                            <tr><td>信用卡總額度</td><td>設定信用卡額度</td><td>設定玉山信用卡額度 100000</td></tr>
-                            <tr><td>信用卡可用額度</td><td>設定信用卡可用額度</td><td>設定玉山信用卡可用額度 65000</td></tr>
-                            <tr><td>查看上一筆</td><td>查看上一筆</td><td>查看上一筆</td></tr>
-                            <tr><td>修改上一筆</td><td>修改上一筆 項目 金額</td><td>修改上一筆 午餐 150</td></tr>
-                            <tr><td>修改金額</td><td>修改上一筆金額 金額</td><td>修改上一筆金額 150</td></tr>
-                            <tr><td>修改項目</td><td>修改上一筆項目 項目</td><td>修改上一筆項目 午餐</td></tr>
-                            <tr><td>修改分類</td><td>修改上一筆分類 分類</td><td>修改上一筆分類 飲食</td></tr>
-                            <tr><td>刪除上一筆</td><td>刪除上一筆 → 確認刪除</td><td>刪除上一筆</td></tr>
-                            <tr><td>系統檢查</td><td>系統檢查</td><td>系統檢查</td></tr>
+                            <tr><td>個人支出</td><td>項目 金額</td><td><code>早餐 85</code></td></tr>
+                            <tr><td>個人收入</td><td>收入項目 金額</td><td><code>薪水 55000</code></td></tr>
+                            <tr><td>金家收入</td><td>金家收入 金額</td><td><code>金家收入 4500</code></td></tr>
+                            <tr><td>金家支出</td><td>金家支出 項目 金額</td><td><code>金家支出 材料 3000</code></td></tr>
+                            <tr><td>刷卡</td><td>刷卡 項目 金額</td><td><code>刷卡 電影 500</code></td></tr>
+                            <tr><td>查看上一筆</td><td>查看上一筆</td><td><code>查看上一筆</code></td></tr>
+                            <tr><td>修改全部</td><td>修改上一筆 項目 金額</td><td><code>修改上一筆 午餐 150</code></td></tr>
+                            <tr><td>只改金額</td><td>修改上一筆金額 金額</td><td><code>修改上一筆金額 150</code></td></tr>
+                            <tr><td>只改項目</td><td>修改上一筆項目 項目</td><td><code>修改上一筆項目 午餐</code></td></tr>
+                            <tr><td>只改分類</td><td>修改上一筆分類 分類</td><td><code>修改上一筆分類 飲食</code></td></tr>
+                            <tr><td>刪除上一筆</td><td>先刪除，再確認</td><td><code>刪除上一筆</code> → <code>確認刪除</code></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 style="margin:24px 0 12px;">② 銀行與信用卡</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>功能</th><th>格式</th><th>直接照著打</th></tr></thead>
+                        <tbody>
+                            <tr><td>設定銀行餘額</td><td>設定 銀行 金額</td><td><code>設定 中國信託 215</code></td></tr>
+                            <tr><td>查銀行餘額</td><td>帳戶餘額</td><td><code>帳戶餘額</code></td></tr>
+                            <tr><td>銀行歷史</td><td>銀行歷史 銀行</td><td><code>銀行歷史 玉山銀行</code></td></tr>
+                            <tr><td>卡片總額度</td><td>設定卡片額度 金額</td><td><code>設定玉山信用卡額度 100000</code></td></tr>
+                            <tr><td>卡片可用額度</td><td>設定卡片可用額度 金額</td><td><code>設定玉山信用卡可用額度 65000</code></td></tr>
+                            <tr><td>卡片應繳</td><td>設定卡片應繳 金額</td><td><code>設定玉山信用卡應繳 12500</code></td></tr>
+                            <tr><td>標記已繳</td><td>卡片名稱 已繳交</td><td><code>玉山信用卡 已繳交</code></td></tr>
+                            <tr><td>查信用卡</td><td>信用卡額度</td><td><code>信用卡額度</code></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 style="margin:24px 0 12px;">③ 金家固定帳單與人物</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>固定項目</th><th>格式</th><th>直接照著打</th></tr></thead>
+                        <tbody>
+                            <tr><td>網路費</td><td>網路費 狀態 金額</td><td><code>網路費 已繳交 899</code></td></tr>
+                            <tr><td>水費</td><td>水費 狀態 金額</td><td><code>水費 未繳交 650</code></td></tr>
+                            <tr><td>電費</td><td>電費 狀態 金額</td><td><code>電費 已繳交 3500</code></td></tr>
+                            <tr><td>俊宏</td><td>俊宏 狀態 金額</td><td><code>俊宏 已繳交 3000</code></td></tr>
+                            <tr><td>俊億</td><td>俊億 狀態 金額</td><td><code>俊億 未繳交 3500</code></td></tr>
+                            <tr><td>宗暉</td><td>宗暉 狀態 金額</td><td><code>宗暉 已繳交 2500</code></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 style="margin:24px 0 12px;">④ 負債與查詢</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>功能</th><th>格式</th><th>直接照著打</th></tr></thead>
+                        <tbody>
+                            <tr><td>新增負債</td><td>負債 名稱 金額</td><td><code>負債 車貸 180000</code></td></tr>
+                            <tr><td>還款</td><td>還款 名稱 金額</td><td><code>還款 車貸 5000</code></td></tr>
+                            <tr><td>本月收支</td><td>本月</td><td><code>本月</code></td></tr>
+                            <tr><td>金家本月</td><td>金家本月</td><td><code>金家本月</code></td></tr>
+                            <tr><td>歷史查詢</td><td>歷史 類型 月份</td><td><code>歷史 支出 2026-07</code></td></tr>
+                            <tr><td>系統檢查</td><td>系統檢查</td><td><code>系統檢查</code></td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1976,24 +2019,67 @@ def admin_page(message: str = "") -> str:
     except Exception:
         jinjia_items = []
 
-    jinjia_forms = ""
-    for item in jinjia_items:
-        item_type = str(item.get("item_type") or "")
-        item_name = str(item.get("item_name") or "")
+    jinjia_bill_forms = ""
+    jinjia_people_forms = ""
+
+    jinjia_lookup = {
+        (str(item.get("item_type") or ""), str(item.get("item_name") or "")): item
+        for item in jinjia_items
+    }
+
+    for item_name in JINJIA_BILLS:
+        item = jinjia_lookup.get(
+            ("帳單", item_name),
+            {"status": "未繳交", "amount": 0},
+        )
         status = str(item.get("status") or "未繳交")
         amount = int(item.get("amount") or 0)
-        jinjia_forms += f"""
-        <form method="post" action="/admin/jinjia-status/update" class="edit-row status-edit">
+
+        jinjia_bill_forms += f"""
+        <form method="post" action="/admin/jinjia-status/update"
+              class="jinjia-choice-card">
             <input type="hidden" name="month" value="{escape(current_month)}">
-            <input type="hidden" name="item_type" value="{escape(item_type)}">
+            <input type="hidden" name="item_type" value="帳單">
             <input type="hidden" name="item_name" value="{escape(item_name)}">
-            <strong>{escape(item_type)}｜{escape(item_name)}</strong>
-            <select name="status">
-                <option value="未繳交" {'selected' if status == '未繳交' else ''}>未繳交</option>
-                <option value="已繳交" {'selected' if status == '已繳交' else ''}>已繳交</option>
-            </select>
-            <input type="number" min="0" name="amount" value="{amount}" required>
-            <button type="submit">儲存</button>
+            <div class="choice-title">🧾 {escape(item_name)}</div>
+            <label>繳交狀態
+                <select name="status">
+                    <option value="未繳交" {'selected' if status == '未繳交' else ''}>未繳交</option>
+                    <option value="已繳交" {'selected' if status == '已繳交' else ''}>已繳交</option>
+                </select>
+            </label>
+            <label>金額
+                <input type="number" min="0" name="amount" value="{amount}" required>
+            </label>
+            <button type="submit">儲存帳單狀態</button>
+        </form>
+        """
+
+    for item_name in JINJIA_PEOPLE:
+        item = jinjia_lookup.get(
+            ("人物", item_name),
+            {"status": "未繳交", "amount": 0},
+        )
+        status = str(item.get("status") or "未繳交")
+        amount = int(item.get("amount") or 0)
+
+        jinjia_people_forms += f"""
+        <form method="post" action="/admin/jinjia-status/update"
+              class="jinjia-choice-card">
+            <input type="hidden" name="month" value="{escape(current_month)}">
+            <input type="hidden" name="item_type" value="人物">
+            <input type="hidden" name="item_name" value="{escape(item_name)}">
+            <div class="choice-title">👤 {escape(item_name)}</div>
+            <label>繳交狀態
+                <select name="status">
+                    <option value="未繳交" {'selected' if status == '未繳交' else ''}>未繳交</option>
+                    <option value="已繳交" {'selected' if status == '已繳交' else ''}>已繳交</option>
+                </select>
+            </label>
+            <label>金額
+                <input type="number" min="0" name="amount" value="{amount}" required>
+            </label>
+            <button type="submit">儲存人物狀態</button>
         </form>
         """
 
@@ -2069,11 +2155,19 @@ def admin_page(message: str = "") -> str:
             .debt-form {{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto auto;
             gap:8px;padding:10px 0;border-bottom:1px solid #eee}}
             .status-edit {{grid-template-columns:2fr 1fr 1fr auto}}
+            .jinjia-grid {{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}}
+            .jinjia-choice-card {{border:1px solid #e5e7eb;border-radius:16px;
+            padding:16px;background:#fafafa}}
+            .jinjia-choice-card label {{display:block;font-size:13px;margin-top:10px}}
+            .jinjia-choice-card input,.jinjia-choice-card select {{
+            width:100%;margin-top:5px}}
+            .choice-title {{font-size:18px;font-weight:800}}
+            .help-text {{color:#6b7280;margin:-6px 0 16px;line-height:1.7}}
             .section-nav {{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 20px}}
             .section-nav a {{text-decoration:none;background:#eef5ff;color:#007aff;
             padding:8px 10px;border-radius:10px;font-weight:700}}
             @media(max-width:900px) {{
-                .credit-grid {{grid-template-columns:1fr}}
+                .credit-grid,.jinjia-grid {{grid-template-columns:1fr}}
                 .debt-form {{grid-template-columns:1fr 1fr}}
             }}
             @media(max-width:760px) {{
@@ -2128,8 +2222,17 @@ def admin_page(message: str = "") -> str:
             </div>
 
             <div class="card" id="jinjia">
-                <h2>金家帳單與人物狀態（{current_month}）</h2>
-                {jinjia_forms or '<p>目前沒有金家狀態資料。</p>'}
+                <h2>金家帳單與人物繳交管理（{current_month}）</h2>
+                <p class="help-text">
+                    每個固定項目都能直接選擇「已繳交」或「未繳交」，
+                    並輸入金額後儲存。
+                </p>
+
+                <h3>固定帳單</h3>
+                <div class="jinjia-grid">{jinjia_bill_forms}</div>
+
+                <h3 style="margin-top:22px;">固定人物</h3>
+                <div class="jinjia-grid">{jinjia_people_forms}</div>
             </div>
 
             <div class="card" id="debts">
