@@ -201,6 +201,8 @@ def parse_transaction(user_text: str) -> dict[str, Any] | None:
 
 def normalize_account(value: str | None) -> str:
     account = (value or "").strip()
+    if account in {"金家", "金家帳戶", "金家水電帳戶"}:
+        return "金家水電"
     return account if account else "個人"
 
 
@@ -295,6 +297,33 @@ PERSONAL_BANKS = (
 )
 JINJIA_BANKS = ("王道銀行",)
 ALL_BANKS = PERSONAL_BANKS + JINJIA_BANKS
+
+
+BANK_ALIASES = {
+    "玉山": "玉山銀行",
+    "玉山銀行": "玉山銀行",
+    "中信": "中國信託",
+    "中信銀行": "中國信託",
+    "中國信託": "中國信託",
+    "中國信託銀行": "中國信託",
+    "渣打": "渣打銀行",
+    "渣打銀行": "渣打銀行",
+    "華南": "華南銀行",
+    "華南銀行": "華南銀行",
+    "line bank": "LINE Bank",
+    "linebank": "LINE Bank",
+    "line pay money": "LINE Pay Money",
+    "linepay money": "LINE Pay Money",
+    "linepaymoney": "LINE Pay Money",
+    "王道": "王道銀行",
+    "王道銀行": "王道銀行",
+}
+
+
+def normalize_bank_name(value: str) -> str | None:
+    cleaned = re.sub(r"\s+", " ", value.strip())
+    return BANK_ALIASES.get(cleaned.lower(), BANK_ALIASES.get(cleaned))
+
 
 
 def get_bank_balances(owner: str) -> dict[str, dict[str, Any]]:
@@ -1624,9 +1653,51 @@ def home():
     return html
 
 
+def run_system_health_checks() -> dict[str, Any]:
+    checks: dict[str, dict[str, Any]] = {}
+
+    table_checks = {
+        "transactions": "id,line_user_id,account,type,category,amount,description,created_at",
+        "debts": "id,line_user_id,debt_name,remaining_amount,created_at",
+        "bank_balances": "owner,bank_name,balance,updated_at",
+        "bank_balance_history": "owner,bank_name,balance,recorded_at",
+        "credit_cards": "card_name,total_limit,available_limit,updated_at",
+        "jinjia_payment_status": "month,item_type,item_name,status,amount",
+    }
+
+    for table_name, columns in table_checks.items():
+        try:
+            (
+                supabase
+                .table(table_name)
+                .select(columns)
+                .limit(1)
+                .execute()
+            )
+            checks[table_name] = {"ok": True}
+        except Exception as error:
+            checks[table_name] = {
+                "ok": False,
+                "error": str(error)[:300],
+            }
+
+    all_ok = all(item["ok"] for item in checks.values())
+    return {
+        "status": "ok" if all_ok else "degraded",
+        "checked_at": datetime.now(TAIPEI).isoformat(),
+        "checks": checks,
+    }
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return {"status": "ok"}, 200
+
+
+@app.route("/health/full", methods=["GET"])
+def full_health():
+    report = run_system_health_checks()
+    return report, 200 if report["status"] == "ok" else 503
 
 
 # ----------------------------
@@ -1657,11 +1728,38 @@ def handle_message(event: MessageEvent):
     user_text = event.message.text.strip()
     user_id = event.source.user_id
 
+    if user_text in {"系統檢查", "健康檢查", "系統狀態"}:
+        report = run_system_health_checks()
+        lines = [
+            "🩺 AI 財務管家健康檢查",
+            f"整體狀態：{'正常' if report['status'] == 'ok' else '部分異常'}",
+        ]
+
+        labels = {
+            "transactions": "收支記帳",
+            "debts": "負債",
+            "bank_balances": "銀行餘額",
+            "bank_balance_history": "銀行歷史",
+            "credit_cards": "信用卡",
+            "jinjia_payment_status": "金家繳交狀態",
+        }
+
+        for key, result in report["checks"].items():
+            icon = "✅" if result["ok"] else "❌"
+            lines.append(f"{icon} {labels.get(key, key)}")
+
+        if report["status"] != "ok":
+            lines.append("\n詳細錯誤請查看 Render Logs 或 /health/full")
+
+        reply_line(event, "\n".join(lines))
+        return
+
     # 幫助
     if user_text in {"幫助", "help", "Help", "HELP"}:
         reply_line(
             event,
             "📘 使用方式\n\n"
+            "系統檢查：系統檢查\n"
             "支出：早餐 85\n"
             "刷卡：刷卡 電影 500\n"
             "收入：薪水 70000\n"
@@ -1700,7 +1798,7 @@ def handle_message(event: MessageEvent):
 
     # 信用卡額度設定與查詢
     credit_total_match = re.match(
-        r"^設定(玉山信用卡|中信信用卡|兆豐信用卡)額度\s+(\d[\d,]*)\s*$",
+        r"^設定\s*(玉山信用卡|中信信用卡|兆豐信用卡)額度\s+(\d[\d,]*)\s*$",
         user_text,
     )
 
@@ -1737,7 +1835,7 @@ def handle_message(event: MessageEvent):
         return
 
     credit_available_match = re.match(
-        r"^設定(玉山信用卡|中信信用卡|兆豐信用卡)可用額度\s+(\d[\d,]*)\s*$",
+        r"^設定\s*(玉山信用卡|中信信用卡|兆豐信用卡)可用額度\s+(\d[\d,]*)\s*$",
         user_text,
     )
 
@@ -1765,7 +1863,7 @@ def handle_message(event: MessageEvent):
         return
 
     credit_statement_day_match = re.match(
-        r"^設定(玉山信用卡|中信信用卡|兆豐信用卡)結帳日\s+(\d{1,2})\s*$",
+        r"^設定\s*(玉山信用卡|中信信用卡|兆豐信用卡)結帳日\s+(\d{1,2})\s*$",
         user_text,
     )
 
@@ -1783,7 +1881,7 @@ def handle_message(event: MessageEvent):
         return
 
     credit_due_day_match = re.match(
-        r"^設定(玉山信用卡|中信信用卡|兆豐信用卡)繳款日\s+(\d{1,2})\s*$",
+        r"^設定\s*(玉山信用卡|中信信用卡|兆豐信用卡)繳款日\s+(\d{1,2})\s*$",
         user_text,
     )
 
@@ -1801,7 +1899,7 @@ def handle_message(event: MessageEvent):
         return
 
     credit_statement_amount_match = re.match(
-        r"^設定(玉山信用卡|中信信用卡|兆豐信用卡)應繳\s+(\d[\d,]*)\s*$",
+        r"^設定\s*(玉山信用卡|中信信用卡|兆豐信用卡)應繳\s+(\d[\d,]*)\s*$",
         user_text,
     )
 
@@ -1909,7 +2007,9 @@ def handle_message(event: MessageEvent):
 
     # 銀行帳戶餘額設定與查詢
     bank_balance_match = re.match(
-        r"^設定(玉山銀行|中國信託|渣打銀行|華南銀行|LINE Bank|LINE Pay Money|王道銀行)"
+        r"^設定\s*(玉山(?:銀行)?|中信(?:銀行)?|中國信託(?:銀行)?|"
+        r"渣打(?:銀行)?|華南(?:銀行)?|LINE\s*Bank|"
+        r"LINE\s*Pay\s*Money|王道(?:銀行)?)"
         r"\s+(-?\d[\d,]*)\s*$",
         user_text,
         re.IGNORECASE,
@@ -1917,14 +2017,11 @@ def handle_message(event: MessageEvent):
 
     if bank_balance_match:
         raw_bank_name = bank_balance_match.group(1)
-        normalized_names = {
-            "line bank": "LINE Bank",
-            "line pay money": "LINE Pay Money",
-        }
-        bank_name = normalized_names.get(
-            raw_bank_name.lower(),
-            raw_bank_name,
-        )
+        bank_name = normalize_bank_name(raw_bank_name)
+
+        if not bank_name:
+            reply_line(event, "無法辨識銀行名稱，請輸入「幫助」查看格式。")
+            return
         owner = "金家" if bank_name == "王道銀行" else "個人"
 
         try:
@@ -1934,7 +2031,7 @@ def handle_message(event: MessageEvent):
             set_bank_balance(owner, bank_name, target_balance)
         except Exception as error:
             print("設定銀行餘額失敗：", error)
-            reply_line(event, "設定銀行餘額失敗，請稍後再試。")
+            reply_line(event, "設定銀行餘額失敗（BANK-SET），請稍後再試。")
             return
 
         reply_line(
@@ -2162,7 +2259,7 @@ def handle_message(event: MessageEvent):
             ).execute()
         except Exception as error:
             print("金家水電記帳失敗：", error)
-            reply_line(event, "金家水電記帳失敗，請稍後再試。")
+            reply_line(event, "金家水電記帳失敗（JINJIA-TX），請先執行健康檢查 SQL。")
             return
 
         sign = "+" if entry_type == "收入" else "-"
