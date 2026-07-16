@@ -49,6 +49,19 @@ def reply_line(event: MessageEvent, text: str) -> None:
         )
 
 
+def format_taipei_datetime(value: str | None) -> str:
+    if not value:
+        return "尚未更新"
+
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=TAIPEI)
+        return parsed.astimezone(TAIPEI).strftime("%Y/%m/%d %H:%M")
+    except (ValueError, TypeError):
+        return str(value)[:16].replace("T", " ")
+
+
 def parse_positive_int(value: str) -> int | None:
     cleaned = value.replace(",", "").strip()
     if not cleaned.isdigit():
@@ -284,25 +297,56 @@ JINJIA_BANKS = ("王道銀行",)
 ALL_BANKS = PERSONAL_BANKS + JINJIA_BANKS
 
 
-def get_bank_balances(owner: str) -> dict[str, int]:
+def get_bank_balances(owner: str) -> dict[str, dict[str, Any]]:
     expected = PERSONAL_BANKS if owner == "個人" else JINJIA_BANKS
 
     response = (
         supabase
         .table("bank_balances")
-        .select("bank_name,balance")
+        .select("bank_name,balance,updated_at")
         .eq("owner", owner)
         .execute()
     )
 
     stored = {
-        str(item.get("bank_name")): int(item.get("balance") or 0)
+        str(item.get("bank_name")): {
+            "balance": int(item.get("balance") or 0),
+            "updated_at": item.get("updated_at"),
+        }
         for item in (response.data or [])
     }
-    return {bank: stored.get(bank, 0) for bank in expected}
+
+    return {
+        bank: stored.get(
+            bank,
+            {"balance": 0, "updated_at": None},
+        )
+        for bank in expected
+    }
 
 
 def set_bank_balance(owner: str, bank_name: str, balance: int) -> None:
+    if balance < 0:
+        raise ValueError("銀行餘額不可小於 0")
+
+    now_text = datetime.now(TAIPEI).isoformat()
+
+    current_response = (
+        supabase
+        .table("bank_balances")
+        .select("balance")
+        .eq("owner", owner)
+        .eq("bank_name", bank_name)
+        .limit(1)
+        .execute()
+    )
+    current_rows = current_response.data or []
+    old_balance = (
+        int(current_rows[0].get("balance") or 0)
+        if current_rows
+        else 0
+    )
+
     (
         supabase
         .table("bank_balances")
@@ -311,23 +355,60 @@ def set_bank_balance(owner: str, bank_name: str, balance: int) -> None:
                 "owner": owner,
                 "bank_name": bank_name,
                 "balance": balance,
-                "updated_at": datetime.now(TAIPEI).isoformat(),
+                "updated_at": now_text,
             },
             on_conflict="owner,bank_name",
         )
         .execute()
     )
 
+    if not current_rows or old_balance != balance:
+        (
+            supabase
+            .table("bank_balance_history")
+            .insert(
+                {
+                    "owner": owner,
+                    "bank_name": bank_name,
+                    "balance": balance,
+                    "recorded_at": now_text,
+                }
+            )
+            .execute()
+        )
+
+
+def get_bank_balance_history(
+    bank_name: str | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    query = (
+        supabase
+        .table("bank_balance_history")
+        .select("*")
+        .order("recorded_at", desc=True)
+        .limit(limit)
+    )
+
+    if bank_name:
+        query = query.eq("bank_name", bank_name)
+
+    response = query.execute()
+    return response.data or []
+
 
 def build_bank_balance_rows(
-    balances: dict[str, int],
+    balances: dict[str, dict[str, Any]],
     total: int,
     bar_class: str = "bank-bar",
 ) -> str:
     rows = ""
 
-    for bank_name, balance in balances.items():
+    for bank_name, values in balances.items():
+        balance = int(values.get("balance") or 0)
+        updated_at = format_taipei_datetime(values.get("updated_at"))
         percent = balance / total * 100 if total > 0 else 0
+
         rows += f"""
         <div class="bank-balance-item">
             <div class="summary-row">
@@ -338,11 +419,15 @@ def build_bank_balance_rows(
                 <div class="progress-bar {bar_class}"
                      style="width:{percent:.1f}%"></div>
             </div>
-            <div class="muted">{percent:.1f}%</div>
+            <div class="summary-row">
+                <span class="muted">{percent:.1f}%</span>
+                <span class="muted">更新：{escape(updated_at)}</span>
+            </div>
         </div>
         """
 
     return rows
+
 
 
 CREDIT_CARDS = (
@@ -352,11 +437,15 @@ CREDIT_CARDS = (
 )
 
 
-def get_credit_cards() -> dict[str, dict[str, int]]:
+def get_credit_cards() -> dict[str, dict[str, Any]]:
     response = (
         supabase
         .table("credit_cards")
-        .select("card_name,total_limit,available_limit")
+        .select(
+            "card_name,total_limit,available_limit,"
+            "statement_day,due_day,statement_amount,"
+            "payment_status,payment_date,updated_at"
+        )
         .execute()
     )
 
@@ -364,15 +453,31 @@ def get_credit_cards() -> dict[str, dict[str, int]]:
         str(item.get("card_name")): {
             "total_limit": int(item.get("total_limit") or 0),
             "available_limit": int(item.get("available_limit") or 0),
+            "statement_day": int(item.get("statement_day") or 0),
+            "due_day": int(item.get("due_day") or 0),
+            "statement_amount": int(item.get("statement_amount") or 0),
+            "payment_status": str(
+                item.get("payment_status") or "未繳交"
+            ),
+            "payment_date": item.get("payment_date"),
+            "updated_at": item.get("updated_at"),
         }
         for item in (response.data or [])
     }
 
+    default = {
+        "total_limit": 0,
+        "available_limit": 0,
+        "statement_day": 0,
+        "due_day": 0,
+        "statement_amount": 0,
+        "payment_status": "未繳交",
+        "payment_date": None,
+        "updated_at": None,
+    }
+
     return {
-        card: stored.get(
-            card,
-            {"total_limit": 0, "available_limit": 0},
-        )
+        card: stored.get(card, default.copy())
         for card in CREDIT_CARDS
     }
 
@@ -381,28 +486,63 @@ def set_credit_card_values(
     card_name: str,
     total_limit: int | None = None,
     available_limit: int | None = None,
+    statement_day: int | None = None,
+    due_day: int | None = None,
+    statement_amount: int | None = None,
+    payment_status: str | None = None,
 ) -> None:
-    current = get_credit_cards().get(
-        card_name,
-        {"total_limit": 0, "available_limit": 0},
-    )
+    current = get_credit_cards().get(card_name, {})
 
     new_total = (
-        current["total_limit"]
+        int(current.get("total_limit") or 0)
         if total_limit is None
         else total_limit
     )
     new_available = (
-        current["available_limit"]
+        int(current.get("available_limit") or 0)
         if available_limit is None
         else available_limit
     )
+    new_statement_day = (
+        int(current.get("statement_day") or 0)
+        if statement_day is None
+        else statement_day
+    )
+    new_due_day = (
+        int(current.get("due_day") or 0)
+        if due_day is None
+        else due_day
+    )
+    new_statement_amount = (
+        int(current.get("statement_amount") or 0)
+        if statement_amount is None
+        else statement_amount
+    )
+    new_payment_status = (
+        str(current.get("payment_status") or "未繳交")
+        if payment_status is None
+        else payment_status
+    )
 
-    if new_total < 0 or new_available < 0:
-        raise ValueError("額度不可小於 0")
+    if min(new_total, new_available, new_statement_amount) < 0:
+        raise ValueError("金額不可小於 0")
 
     if new_total > 0 and new_available > new_total:
         raise ValueError("可用額度不可大於總額度")
+
+    for day_value in (new_statement_day, new_due_day):
+        if day_value and not 1 <= day_value <= 31:
+            raise ValueError("日期必須介於 1～31 日")
+
+    if new_payment_status not in {"已繳交", "未繳交"}:
+        raise ValueError("繳款狀態只能是已繳交或未繳交")
+
+    now_text = datetime.now(TAIPEI).isoformat()
+    payment_date = (
+        now_text
+        if new_payment_status == "已繳交"
+        else None
+    )
 
     (
         supabase
@@ -412,7 +552,12 @@ def set_credit_card_values(
                 "card_name": card_name,
                 "total_limit": new_total,
                 "available_limit": new_available,
-                "updated_at": datetime.now(TAIPEI).isoformat(),
+                "statement_day": new_statement_day or None,
+                "due_day": new_due_day or None,
+                "statement_amount": new_statement_amount,
+                "payment_status": new_payment_status,
+                "payment_date": payment_date,
+                "updated_at": now_text,
             },
             on_conflict="card_name",
         )
@@ -421,7 +566,7 @@ def set_credit_card_values(
 
 
 def build_credit_card_rows(
-    cards: dict[str, dict[str, int]],
+    cards: dict[str, dict[str, Any]],
 ) -> tuple[str, int, int]:
     rows = ""
     total_limit_sum = 0
@@ -430,6 +575,16 @@ def build_credit_card_rows(
     for card_name, values in cards.items():
         total_limit = int(values.get("total_limit") or 0)
         available_limit = int(values.get("available_limit") or 0)
+        statement_day = int(values.get("statement_day") or 0)
+        due_day = int(values.get("due_day") or 0)
+        statement_amount = int(values.get("statement_amount") or 0)
+        payment_status = str(
+            values.get("payment_status") or "未繳交"
+        )
+        updated_at = format_taipei_datetime(
+            values.get("updated_at")
+        )
+
         percent = (
             available_limit / total_limit * 100
             if total_limit > 0
@@ -439,28 +594,50 @@ def build_credit_card_rows(
         total_limit_sum += total_limit
         available_limit_sum += available_limit
 
+        statement_text = (
+            f"每月 {statement_day} 日"
+            if statement_day
+            else "未設定"
+        )
+        due_text = (
+            f"每月 {due_day} 日"
+            if due_day
+            else "未設定"
+        )
+        status_class = (
+            "paid" if payment_status == "已繳交" else "unpaid"
+        )
+
         rows += f"""
         <div class="bank-balance-item">
             <div class="summary-row">
                 <span>{escape(card_name)}</span>
-                <strong>NT$ {available_limit:,.0f}</strong>
+                <strong>可用 NT$ {available_limit:,.0f}</strong>
             </div>
             <div class="muted" style="margin:6px 0;">
                 總額度 NT$ {total_limit:,.0f}
+                ｜本期應繳 NT$ {statement_amount:,.0f}
+            </div>
+            <div class="muted" style="margin-bottom:6px;">
+                結帳日：{statement_text}｜繳款日：{due_text}
             </div>
             <div class="progress">
                 <div class="progress-bar credit-card-bar"
                      style="width:{percent:.1f}%"></div>
             </div>
-            <div class="muted">可用額度比例 {percent:.1f}%</div>
+            <div class="summary-row">
+                <span class="muted">可用比例 {percent:.1f}%</span>
+                <span class="payment-status {status_class}">
+                    {payment_status}
+                </span>
+            </div>
+            <div class="muted" style="margin-top:6px;">
+                更新：{escape(updated_at)}
+            </div>
         </div>
         """
 
     return rows, total_limit_sum, available_limit_sum
-
-
-JINJIA_BILLS = ("水費", "電費", "網路費")
-JINJIA_PEOPLE = ("俊億", "宗暉", "俊宏")
 
 
 def ensure_jinjia_month_statuses(month: str) -> None:
@@ -639,6 +816,9 @@ def home():
         for item in debts
     )
 
+    total_assets = personal_current_balance + jinjia_current_balance
+    net_worth = total_assets - total_debt
+
     current_month = datetime.now(TAIPEI).strftime("%Y-%m")
 
     try:
@@ -653,8 +833,14 @@ def home():
         print("讀取金家銀行餘額失敗：", error)
         jinjia_bank_balances = {bank: 0 for bank in JINJIA_BANKS}
 
-    personal_current_balance = sum(personal_bank_balances.values())
-    jinjia_current_balance = sum(jinjia_bank_balances.values())
+    personal_current_balance = sum(
+        int(item.get("balance") or 0)
+        for item in personal_bank_balances.values()
+    )
+    jinjia_current_balance = sum(
+        int(item.get("balance") or 0)
+        for item in jinjia_bank_balances.values()
+    )
 
     personal_bank_rows = build_bank_balance_rows(
         personal_bank_balances,
@@ -1296,6 +1482,42 @@ def home():
             </div>
 
             <div class="section">
+                <h2>資產與淨資產總覽</h2>
+                <div class="summary">
+                    <div class="card">
+                        <div class="card-title">個人銀行總餘額</div>
+                        <div class="amount income">
+                            NT$ {personal_current_balance:,.0f}
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">金家王道銀行</div>
+                        <div class="amount income">
+                            NT$ {jinjia_current_balance:,.0f}
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">總資產</div>
+                        <div class="amount current-balance">
+                            NT$ {total_assets:,.0f}
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">總負債</div>
+                        <div class="amount debt">
+                            NT$ {total_debt:,.0f}
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">淨資產</div>
+                        <div class="amount balance">
+                            NT$ {net_worth:,.0f}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
                 <h2>個人銀行帳戶餘額</h2>
                 <div class="bank-balance-list">{personal_bank_rows}</div>
                 <div class="summary-row" style="margin-top:16px;">
@@ -1512,6 +1734,11 @@ def handle_message(event: MessageEvent):
             "信用卡總額度：設定玉山信用卡額度 100000\n"
             "信用卡可用額度：設定玉山信用卡可用額度 65000\n"
             "信用卡查詢：信用卡額度\n"
+            "信用卡結帳日：設定玉山信用卡結帳日 5\n"
+            "信用卡繳款日：設定玉山信用卡繳款日 20\n"
+            "信用卡應繳：設定玉山信用卡應繳 12500\n"
+            "信用卡狀態：玉山信用卡 已繳交\n"
+            "銀行歷史：銀行歷史 玉山銀行\n"
             "帳單狀態：水費 已繳交 650\n"
             "人物狀態：俊億 未繳交 3500\n"
             "狀態查詢：金家狀態\n"
@@ -1594,6 +1821,88 @@ def handle_message(event: MessageEvent):
         )
         return
 
+    credit_statement_day_match = re.match(
+        r"^設定(玉山信用卡|中信信用卡|兆豐信用卡)結帳日\s+(\d{1,2})\s*$",
+        user_text,
+    )
+
+    if credit_statement_day_match:
+        card_name = credit_statement_day_match.group(1)
+        day = int(credit_statement_day_match.group(2))
+
+        try:
+            set_credit_card_values(card_name, statement_day=day)
+        except Exception as error:
+            reply_line(event, f"設定失敗：{error}")
+            return
+
+        reply_line(event, f"✅ 已設定{card_name}結帳日：每月 {day} 日")
+        return
+
+    credit_due_day_match = re.match(
+        r"^設定(玉山信用卡|中信信用卡|兆豐信用卡)繳款日\s+(\d{1,2})\s*$",
+        user_text,
+    )
+
+    if credit_due_day_match:
+        card_name = credit_due_day_match.group(1)
+        day = int(credit_due_day_match.group(2))
+
+        try:
+            set_credit_card_values(card_name, due_day=day)
+        except Exception as error:
+            reply_line(event, f"設定失敗：{error}")
+            return
+
+        reply_line(event, f"✅ 已設定{card_name}繳款日：每月 {day} 日")
+        return
+
+    credit_statement_amount_match = re.match(
+        r"^設定(玉山信用卡|中信信用卡|兆豐信用卡)應繳\s+(\d[\d,]*)\s*$",
+        user_text,
+    )
+
+    if credit_statement_amount_match:
+        card_name = credit_statement_amount_match.group(1)
+        amount = int(
+            credit_statement_amount_match.group(2).replace(",", "")
+        )
+
+        try:
+            set_credit_card_values(
+                card_name,
+                statement_amount=amount,
+                payment_status="未繳交",
+            )
+        except Exception as error:
+            reply_line(event, f"設定失敗：{error}")
+            return
+
+        reply_line(
+            event,
+            f"✅ 已設定{card_name}本期應繳\nNT$ {amount:,}\n狀態：未繳交",
+        )
+        return
+
+    credit_payment_status_match = re.match(
+        r"^(玉山信用卡|中信信用卡|兆豐信用卡)\s*(已繳交|未繳交|已繳|未繳)\s*$",
+        user_text,
+    )
+
+    if credit_payment_status_match:
+        card_name = credit_payment_status_match.group(1)
+        raw_status = credit_payment_status_match.group(2)
+        status = "已繳交" if raw_status in {"已繳交", "已繳"} else "未繳交"
+
+        try:
+            set_credit_card_values(card_name, payment_status=status)
+        except Exception as error:
+            reply_line(event, f"更新失敗：{error}")
+            return
+
+        reply_line(event, f"✅ {card_name}狀態已更新為：{status}")
+        return
+
     if user_text in {"信用卡額度", "可用額度", "信用卡查詢"}:
         try:
             cards = get_credit_cards()
@@ -1618,10 +1927,27 @@ def handle_message(event: MessageEvent):
             total_limit_sum += total_limit
             available_limit_sum += available_limit
 
+            statement_day = int(values.get("statement_day") or 0)
+            due_day = int(values.get("due_day") or 0)
+            statement_amount = int(
+                values.get("statement_amount") or 0
+            )
+            payment_status = str(
+                values.get("payment_status") or "未繳交"
+            )
+            updated_at = format_taipei_datetime(
+                values.get("updated_at")
+            )
+
             lines.append(
                 f"{card_name}\n"
                 f"可用：NT$ {available_limit:,}\n"
-                f"比例：{percent:.1f}%"
+                f"比例：{percent:.1f}%\n"
+                f"本期應繳：NT$ {statement_amount:,}\n"
+                f"結帳日：{statement_day or '未設定'}\n"
+                f"繳款日：{due_day or '未設定'}\n"
+                f"狀態：{payment_status}\n"
+                f"更新：{updated_at}"
             )
 
         total_percent = (
@@ -1684,27 +2010,86 @@ def handle_message(event: MessageEvent):
             reply_line(event, "銀行餘額查詢失敗，請稍後再試。")
             return
 
-        personal_total = sum(personal_balances.values())
-        jinjia_total = sum(jinjia_balances.values())
+        personal_total = sum(
+            int(item.get("balance") or 0)
+            for item in personal_balances.values()
+        )
+        jinjia_total = sum(
+            int(item.get("balance") or 0)
+            for item in jinjia_balances.values()
+        )
 
         lines = ["💰 個人銀行帳戶"]
-        for bank_name, balance in personal_balances.items():
+        for bank_name, values in personal_balances.items():
+            balance = int(values.get("balance") or 0)
+            updated_at = format_taipei_datetime(
+                values.get("updated_at")
+            )
             percent = balance / personal_total * 100 if personal_total > 0 else 0
             lines.append(
-                f"{bank_name}：NT$ {balance:,}（{percent:.1f}%）"
+                f"{bank_name}：NT$ {balance:,}（{percent:.1f}%）\n"
+                f"更新：{updated_at}"
             )
 
         lines.append(f"個人總餘額：NT$ {personal_total:,}")
         lines.append("")
         lines.append("🏠 金家銀行帳戶")
 
-        for bank_name, balance in jinjia_balances.items():
+        for bank_name, values in jinjia_balances.items():
+            balance = int(values.get("balance") or 0)
+            updated_at = format_taipei_datetime(
+                values.get("updated_at")
+            )
             percent = balance / jinjia_total * 100 if jinjia_total > 0 else 0
             lines.append(
-                f"{bank_name}：NT$ {balance:,}（{percent:.1f}%）"
+                f"{bank_name}：NT$ {balance:,}（{percent:.1f}%）\n"
+                f"更新：{updated_at}"
             )
 
         lines.append(f"金家總餘額：NT$ {jinjia_total:,}")
+        reply_line(event, "\n".join(lines))
+        return
+
+    bank_history_match = re.match(
+        r"^銀行歷史(?:\s+(玉山銀行|中國信託|渣打銀行|華南銀行|LINE Bank|LINE Pay Money|王道銀行))?$",
+        user_text,
+        re.IGNORECASE,
+    )
+
+    if bank_history_match:
+        raw_bank_name = bank_history_match.group(1)
+        normalized_names = {
+            "line bank": "LINE Bank",
+            "line pay money": "LINE Pay Money",
+        }
+        bank_name = (
+            normalized_names.get(raw_bank_name.lower(), raw_bank_name)
+            if raw_bank_name
+            else None
+        )
+
+        try:
+            records = get_bank_balance_history(bank_name, 20)
+        except Exception as error:
+            print("銀行餘額歷史查詢失敗：", error)
+            reply_line(event, "銀行餘額歷史查詢失敗，請稍後再試。")
+            return
+
+        if not records:
+            reply_line(event, "查無銀行餘額歷史紀錄。")
+            return
+
+        lines = [f"📈 銀行餘額歷史｜{bank_name or '全部銀行'}"]
+        for item in records:
+            recorded_at = format_taipei_datetime(
+                item.get("recorded_at")
+            )
+            lines.append(
+                f"{item.get('bank_name')}｜"
+                f"NT$ {int(item.get('balance') or 0):,}｜"
+                f"{recorded_at}"
+            )
+
         reply_line(event, "\n".join(lines))
         return
 
