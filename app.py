@@ -607,9 +607,16 @@ def build_credit_card_rows(
         status_class = (
             "paid" if payment_status == "已繳交" else "unpaid"
         )
+        credit_state = (
+            "credit-danger"
+            if total_limit > 0 and percent < 20
+            else "credit-warning"
+            if total_limit > 0 and percent < 40
+            else "credit-safe"
+        )
 
         rows += f"""
-        <div class="bank-balance-item">
+        <div class="bank-balance-item credit-card-item {credit_state}">
             <div class="summary-row">
                 <span>{escape(card_name)}</span>
                 <strong>可用 NT$ {available_limit:,.0f}</strong>
@@ -864,7 +871,15 @@ def home():
     except Exception as error:
         print("讀取信用卡額度失敗：", error)
         credit_cards = {
-            card: {"total_limit": 0, "available_limit": 0}
+            card: {
+                "total_limit": 0,
+                "available_limit": 0,
+                "statement_day": 0,
+                "due_day": 0,
+                "statement_amount": 0,
+                "payment_status": "未繳交",
+                "updated_at": None,
+            }
             for card in CREDIT_CARDS
         }
 
@@ -1192,274 +1207,181 @@ def home():
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>AI 財務管家</title>
         <style>
-            * {{
-                box-sizing: border-box;
-                margin: 0;
-                padding: 0;
+            :root {{
+                --bg: #f5f5f7;
+                --surface: rgba(255,255,255,.88);
+                --surface-solid: #ffffff;
+                --text: #1d1d1f;
+                --muted: #6e6e73;
+                --line: rgba(0,0,0,.08);
+                --shadow: 0 18px 50px rgba(0,0,0,.08);
+                --blue: #007aff;
+                --green: #30b45a;
+                --red: #ff3b30;
+                --orange: #ff9500;
+                --purple: #7d5cff;
+                --radius-xl: 28px;
+                --radius-lg: 20px;
             }}
+            html[data-theme="dark"] {{
+                --bg: #0b0b0d;
+                --surface: rgba(28,28,30,.88);
+                --surface-solid: #1c1c1e;
+                --text: #f5f5f7;
+                --muted: #a1a1a6;
+                --line: rgba(255,255,255,.10);
+                --shadow: 0 20px 60px rgba(0,0,0,.45);
+            }}
+            * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+            html {{ scroll-behavior: smooth; }}
             body {{
-                font-family: Arial, "Microsoft JhengHei", sans-serif;
-                background: #f4f6f9;
-                color: #1f2937;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display",
+                    "Segoe UI", "Microsoft JhengHei", sans-serif;
+                background:
+                    radial-gradient(circle at 8% 0%, rgba(0,122,255,.13), transparent 32%),
+                    radial-gradient(circle at 92% 10%, rgba(125,92,255,.12), transparent 30%),
+                    var(--bg);
+                color: var(--text);
+                min-height: 100vh;
+                transition: background .25s, color .25s;
             }}
-            .header {{
-                background: linear-gradient(135deg, #0f766e, #14532d);
-                color: white;
-                padding: 32px 20px;
+            .topbar {{
+                position: sticky; top: 0; z-index: 20;
+                backdrop-filter: blur(22px);
+                background: color-mix(in srgb, var(--bg) 78%, transparent);
+                border-bottom: 1px solid var(--line);
             }}
-            .container {{
-                width: 92%;
-                max-width: 1100px;
-                margin: auto;
+            .topbar-inner {{
+                width: min(1180px, 92%); margin: auto; min-height: 72px;
+                display: flex; align-items: center; justify-content: space-between; gap: 16px;
             }}
-            .header h1 {{
-                font-size: 30px;
-                margin-bottom: 8px;
+            .brand {{ display: flex; align-items: center; gap: 12px; font-weight: 760; }}
+            .brand-icon {{
+                width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center;
+                color: white; background: linear-gradient(145deg, #111827, #007aff);
+                box-shadow: 0 10px 24px rgba(0,122,255,.25);
             }}
-            .header p {{
-                opacity: 0.9;
+            .theme-toggle {{
+                border: 1px solid var(--line); background: var(--surface); color: var(--text);
+                width: 44px; height: 44px; border-radius: 50%; cursor: pointer; font-size: 18px;
             }}
-            .summary {{
-                display: grid;
-                grid-template-columns: repeat(4, 1fr);
-                gap: 16px;
-                margin-top: 25px;
+            .hero {{
+                width: min(1180px, 92%); margin: 28px auto 0; border-radius: 34px;
+                overflow: hidden; position: relative; min-height: 245px; padding: 34px; color: white;
+                background: radial-gradient(circle at 75% 15%, rgba(255,255,255,.30), transparent 22%),
+                    linear-gradient(135deg, #111827 0%, #0a5bd8 55%, #7d5cff 100%);
+                box-shadow: 0 28px 70px rgba(0,80,180,.24);
             }}
-            .card, .section {{
-                background: white;
-                border-radius: 14px;
-                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.06);
+            .hero::after {{
+                content: ""; position: absolute; width: 280px; height: 280px; right: -85px;
+                bottom: -145px; border: 1px solid rgba(255,255,255,.30); border-radius: 50%;
+                box-shadow: 0 0 0 34px rgba(255,255,255,.05), 0 0 0 70px rgba(255,255,255,.04);
             }}
+            .hero-kicker {{ opacity: .78; font-size: 14px; margin-bottom: 12px; }}
+            .hero h1 {{ font-size: clamp(30px, 5vw, 54px); letter-spacing: -.045em; line-height: 1.02; margin-bottom: 10px; }}
+            .hero-value {{ font-size: clamp(28px, 4.5vw, 48px); font-weight: 780; letter-spacing: -.04em; margin-top: 26px; }}
+            .hero-sub {{ margin-top: 8px; opacity: .84; }}
+            .container {{ width: min(1180px, 92%); margin: 0 auto; padding-bottom: 46px; }}
+            .summary {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }}
+            .card, .section {{ background: var(--surface); border: 1px solid var(--line); backdrop-filter: blur(20px); box-shadow: var(--shadow); }}
             .card {{
-                padding: 22px;
+                padding: 22px; border-radius: var(--radius-lg); min-height: 126px; position: relative;
+                overflow: hidden; transition: transform .2s ease, box-shadow .2s ease;
             }}
-            .card-title, .muted {{
-                color: #6b7280;
-                font-size: 14px;
-            }}
-            .card-title {{
-                margin-bottom: 10px;
-            }}
-            .amount {{
-                font-size: 26px;
-                font-weight: bold;
-            }}
-            .income {{ color: #15803d; }}
-            .expense {{ color: #dc2626; }}
-            .balance {{ color: #2563eb; }}
-            .debt {{ color: #b45309; }}
-            .section {{
-                margin-top: 22px;
-                padding: 24px;
-            }}
-            .section h2 {{
-                margin-bottom: 18px;
-            }}
-            table {{
-                width: 100%;
-                border-collapse: collapse;
-            }}
-            th, td {{
-                padding: 13px;
-                text-align: left;
-                border-bottom: 1px solid #e5e7eb;
-            }}
-            th {{
-                color: #6b7280;
-                font-size: 14px;
-            }}
-            .debt-grid {{
-                display: grid;
-                grid-template-columns: repeat(2, 1fr);
-                gap: 14px;
-            }}
-            .debt-item {{
-                border: 1px solid #e5e7eb;
-                border-radius: 12px;
-                padding: 16px;
-            }}
-            .debt-row {{
-                display: flex;
-                justify-content: space-between;
-                gap: 12px;
-                margin-bottom: 12px;
-            }}
-            .debt-amount {{
-                color: #b45309;
-                font-weight: bold;
-                white-space: nowrap;
-            }}
-            .progress {{
-                height: 10px;
-                background: #e5e7eb;
-                border-radius: 999px;
-                overflow: hidden;
-                margin-bottom: 8px;
-            }}
-            .progress-bar {{
-                height: 100%;
-                background: #0f766e;
-            }}
-            .expense-bar {{
-                background: #dc2626;
-            }}
-            .income-bar {{
-                background: #15803d;
-            }}
-            .money-grid {{
-                display: grid;
-                grid-template-columns: repeat(2, 1fr);
-                gap: 16px;
-            }}
-            .income-grid {{
-                display: grid;
-                grid-template-columns: repeat(3, 1fr);
-                gap: 14px;
-            }}
-            .income-card {{
-                border: 1px solid #e5e7eb;
-                border-radius: 12px;
-                padding: 18px;
-                background: #ffffff;
-            }}
-            .income-card strong {{
-                display: block;
-                margin-top: 8px;
-                font-size: 24px;
-                color: #15803d;
-            }}
-            .account-header {{
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 12px;
-                margin-bottom: 18px;
-            }}
+            .card:hover, .bank-balance-item:hover, .status-card:hover {{ transform: translateY(-3px); }}
+            .card-title, .muted {{ color: var(--muted); font-size: 14px; }}
+            .card-title {{ margin-bottom: 12px; font-weight: 650; }}
+            .amount {{ font-size: clamp(23px, 3vw, 30px); font-weight: 770; letter-spacing: -.035em; }}
+            .income {{ color: var(--green); }} .expense {{ color: var(--red); }}
+            .balance {{ color: var(--blue); }} .debt {{ color: var(--orange); }}
+            .current-balance {{ color: var(--purple); }}
+            .section {{ margin-top: 22px; padding: 26px; border-radius: var(--radius-xl); }}
+            .section h2 {{ font-size: 23px; letter-spacing: -.025em; margin-bottom: 18px; }}
+            .account-header {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }}
+            .account-header h2 {{ margin-bottom: 0; }}
             .account-badge {{
-                background: #fef3c7;
-                color: #92400e;
-                padding: 6px 10px;
-                border-radius: 999px;
-                font-size: 13px;
+                background: rgba(0,122,255,.10); color: var(--blue); padding: 7px 11px;
+                border-radius: 999px; font-size: 13px; font-weight: 700;
             }}
-            .current-balance {{
-                color: #7c3aed;
+            .bank-balance-list {{ display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }}
+            .bank-balance-item, .income-card, .status-card, .debt-item {{
+                border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 18px;
+                background: color-mix(in srgb, var(--surface-solid) 92%, transparent);
+                transition: transform .2s ease, border-color .2s ease;
             }}
-            .bank-balance-list {{
-                display: grid;
-                gap: 14px;
+            .credit-card-item {{ position: relative; overflow: hidden; min-height: 190px; }}
+            .credit-card-item::before {{
+                content: "●●"; letter-spacing: 6px; position: absolute; right: 18px; top: 17px; opacity: .14; font-size: 18px;
             }}
-            .bank-balance-item {{
-                border: 1px solid #e5e7eb;
-                border-radius: 12px;
-                padding: 14px;
-                background: #ffffff;
+            .credit-safe {{ border-color: rgba(48,180,90,.25); }}
+            .credit-warning {{ border-color: rgba(255,149,0,.50); }}
+            .credit-danger {{ border-color: rgba(255,59,48,.62); box-shadow: 0 12px 34px rgba(255,59,48,.11); }}
+            .progress {{
+                height: 9px; background: color-mix(in srgb, var(--muted) 18%, transparent);
+                border-radius: 999px; overflow: hidden; margin: 10px 0 8px;
             }}
-            .personal-bank-bar {{
-                background: linear-gradient(90deg, #2563eb, #60a5fa);
-            }}
-            .jinjia-bank-bar {{
-                background: linear-gradient(90deg, #d97706, #fbbf24);
-            }}
-            .credit-card-bar {{
-                background: linear-gradient(90deg, #7c3aed, #c084fc);
-            }}
-            .status-grid {{
-                display: grid;
-                grid-template-columns: repeat(3, 1fr);
-                gap: 12px;
-            }}
-            .status-card {{
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                gap: 10px;
-                border: 1px solid #e5e7eb;
-                border-radius: 12px;
-                padding: 14px;
-                background: #fff;
-            }}
-            .payment-status {{
-                padding: 5px 9px;
-                border-radius: 999px;
-                font-size: 13px;
-                white-space: nowrap;
-            }}
-            .payment-status.paid {{
-                background: #dcfce7;
-                color: #166534;
-            }}
-            .payment-status.unpaid {{
-                background: #fee2e2;
-                color: #991b1b;
-            }}
-            .status-amount {{
-                color: #6b7280;
-                font-size: 13px;
-                margin-top: 5px;
-            }}
-            .summary-item {{
-                border-bottom: 1px solid #e5e7eb;
-                padding: 12px 0;
-            }}
-            .summary-item:last-child {{
-                border-bottom: none;
-            }}
-            .summary-row {{
-                display: flex;
-                justify-content: space-between;
-                gap: 12px;
-                margin-bottom: 8px;
+            .progress-bar {{ height: 100%; border-radius: inherit; background: var(--blue); }}
+            .personal-bank-bar {{ background: linear-gradient(90deg, #007aff, #61a8ff); }}
+            .jinjia-bank-bar {{ background: linear-gradient(90deg, #ff9500, #ffd166); }}
+            .credit-card-bar {{ background: linear-gradient(90deg, #7d5cff, #c08cff); }}
+            .expense-bar {{ background: linear-gradient(90deg, #ff3b30, #ff8a80); }}
+            .summary-row, .debt-row {{ display: flex; justify-content: space-between; gap: 12px; align-items: center; }}
+            .summary-item {{ padding: 13px 0; border-bottom: 1px solid var(--line); }}
+            .summary-item:last-child {{ border-bottom: 0; }}
+            .income-grid, .status-grid, .debt-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }}
+            .income-card strong {{ display: block; margin-top: 8px; font-size: 24px; color: var(--green); }}
+            .status-card {{ display: flex; justify-content: space-between; align-items: center; gap: 10px; }}
+            .payment-status {{ padding: 6px 10px; border-radius: 999px; font-size: 13px; white-space: nowrap; font-weight: 750; }}
+            .payment-status.paid {{ background: rgba(48,180,90,.13); color: var(--green); }}
+            .payment-status.unpaid {{ background: rgba(255,59,48,.13); color: var(--red); }}
+            .status-amount {{ color: var(--muted); font-size: 13px; margin-top: 5px; }}
+            .debt-grid {{ grid-template-columns: repeat(2, minmax(0,1fr)); }}
+            .debt-amount {{ color: var(--orange); font-weight: 750; white-space: nowrap; }}
+            .ai-box {{
+                background: linear-gradient(135deg, rgba(0,122,255,.10), rgba(125,92,255,.10));
+                border: 1px solid rgba(0,122,255,.18); padding: 20px; border-radius: var(--radius-lg); line-height: 1.9;
             }}
             .status {{
-                display: inline-block;
-                background: #dcfce7;
-                color: #166534;
-                padding: 7px 12px;
-                border-radius: 20px;
-                font-size: 14px;
+                display: inline-flex; align-items: center; gap: 8px; background: rgba(48,180,90,.13);
+                color: var(--green); padding: 8px 12px; border-radius: 999px; font-size: 14px; font-weight: 700;
             }}
-            .ai-box {{
-                background: #f0fdfa;
-                border-left: 5px solid #0f766e;
-                padding: 18px;
-                border-radius: 8px;
-                line-height: 1.8;
+            table {{ width: 100%; border-collapse: collapse; }}
+            th, td {{ padding: 14px 12px; text-align: left; border-bottom: 1px solid var(--line); }}
+            th {{ color: var(--muted); font-size: 13px; font-weight: 700; text-transform: uppercase; }}
+            .table-wrap {{ overflow-x: auto; border-radius: 14px; }}
+            .footer {{ text-align: center; color: var(--muted); padding: 30px; font-size: 13px; }}
+            @media (max-width: 900px) {{
+                .summary {{ grid-template-columns: repeat(2, minmax(0,1fr)); }}
+                .income-grid, .status-grid {{ grid-template-columns: repeat(2, minmax(0,1fr)); }}
             }}
-            .footer {{
-                text-align: center;
-                color: #9ca3af;
-                padding: 30px;
-                font-size: 13px;
-            }}
-            @media (max-width: 800px) {{
-                .summary, .debt-grid, .money-grid, .income-grid, .status-grid {{
-                    grid-template-columns: repeat(2, 1fr);
-                }}
-            }}
-            @media (max-width: 560px) {{
-                .summary, .debt-grid, .money-grid, .income-grid, .status-grid {{
-                    grid-template-columns: 1fr;
-                }}
-                .amount {{
-                    font-size: 22px;
-                }}
-                table {{
-                    font-size: 13px;
-                }}
-                th, td {{
-                    padding: 8px;
-                }}
+            @media (max-width: 640px) {{
+                .hero {{ padding: 28px 22px; min-height: 225px; border-radius: 26px; }}
+                .summary, .bank-balance-list, .income-grid, .status-grid, .debt-grid {{ grid-template-columns: 1fr; }}
+                .section {{ padding: 20px; border-radius: 22px; }}
+                .card {{ min-height: 112px; }}
+                .topbar-inner {{ min-height: 64px; }}
+                th, td {{ padding: 11px 8px; font-size: 13px; }}
             }}
         </style>
     </head>
     <body>
-        <div class="header">
-            <div class="container">
-                <h1>AI 財務管家</h1>
-                <p>記帳、收支分析與負債管理</p>
+        <div class="topbar">
+            <div class="topbar-inner">
+                <div class="brand">
+                    <div class="brand-icon">¥</div>
+                    <span>AI 財務管家</span>
+                </div>
+                <button class="theme-toggle" id="themeToggle"
+                        aria-label="切換深色模式">◐</button>
             </div>
         </div>
+
+        <section class="hero">
+            <div class="hero-kicker">個人財務總覽 · {current_month}</div>
+            <h1>掌握每一筆錢，<br>讓財務更有方向。</h1>
+            <div class="hero-value">NT$ {net_worth:,.0f}</div>
+            <div class="hero-sub">目前淨資產</div>
+        </section>
 
         <div class="container">
             <div class="summary">
@@ -1621,6 +1543,7 @@ def home():
                 <div class="status-grid">{person_status_cards}</div>
 
                 <h3 style="margin:22px 0 12px;">最近紀錄</h3>
+                <div class="table-wrap">
                 <table>
                     <thead>
                         <tr>
@@ -1632,6 +1555,7 @@ def home():
                     </thead>
                     <tbody>{jinjia_recent_rows}</tbody>
                 </table>
+                </div>
             </div>
 
             <div class="section">
@@ -1641,6 +1565,7 @@ def home():
 
             <div class="section">
                 <h2>最近記帳紀錄</h2>
+                <div class="table-wrap">
                 <table>
                     <thead>
                         <tr>
@@ -1652,6 +1577,7 @@ def home():
                     </thead>
                     <tbody>{recent_rows}</tbody>
                 </table>
+                </div>
             </div>
 
             <div class="section">
@@ -1680,6 +1606,17 @@ def home():
         <div class="footer">
             AI Finance Manager · Powered by LINE Bot
         </div>
+        <script>
+            const root = document.documentElement;
+            const button = document.getElementById("themeToggle");
+            const saved = localStorage.getItem("finance-theme");
+            if (saved) root.dataset.theme = saved;
+            button.addEventListener("click", () => {{
+                const next = root.dataset.theme === "dark" ? "light" : "dark";
+                root.dataset.theme = next;
+                localStorage.setItem("finance-theme", next);
+            }});
+        </script>
     </body>
     </html>
     """
