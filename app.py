@@ -272,6 +272,193 @@ def set_account_current_balance(
     )
 
 
+PERSONAL_BANKS = (
+    "玉山銀行",
+    "中國信託",
+    "渣打銀行",
+    "華南銀行",
+    "LINE Bank",
+    "LINE Pay Money",
+)
+JINJIA_BANKS = ("王道銀行",)
+ALL_BANKS = PERSONAL_BANKS + JINJIA_BANKS
+
+
+def get_bank_balances(owner: str) -> dict[str, int]:
+    expected = PERSONAL_BANKS if owner == "個人" else JINJIA_BANKS
+
+    response = (
+        supabase
+        .table("bank_balances")
+        .select("bank_name,balance")
+        .eq("owner", owner)
+        .execute()
+    )
+
+    stored = {
+        str(item.get("bank_name")): int(item.get("balance") or 0)
+        for item in (response.data or [])
+    }
+    return {bank: stored.get(bank, 0) for bank in expected}
+
+
+def set_bank_balance(owner: str, bank_name: str, balance: int) -> None:
+    (
+        supabase
+        .table("bank_balances")
+        .upsert(
+            {
+                "owner": owner,
+                "bank_name": bank_name,
+                "balance": balance,
+                "updated_at": datetime.now(TAIPEI).isoformat(),
+            },
+            on_conflict="owner,bank_name",
+        )
+        .execute()
+    )
+
+
+def build_bank_balance_rows(
+    balances: dict[str, int],
+    total: int,
+    bar_class: str = "bank-bar",
+) -> str:
+    rows = ""
+
+    for bank_name, balance in balances.items():
+        percent = balance / total * 100 if total > 0 else 0
+        rows += f"""
+        <div class="bank-balance-item">
+            <div class="summary-row">
+                <span>{escape(bank_name)}</span>
+                <strong>NT$ {balance:,.0f}</strong>
+            </div>
+            <div class="progress">
+                <div class="progress-bar {bar_class}"
+                     style="width:{percent:.1f}%"></div>
+            </div>
+            <div class="muted">{percent:.1f}%</div>
+        </div>
+        """
+
+    return rows
+
+
+CREDIT_CARDS = (
+    "玉山信用卡",
+    "中信信用卡",
+    "兆豐信用卡",
+)
+
+
+def get_credit_cards() -> dict[str, dict[str, int]]:
+    response = (
+        supabase
+        .table("credit_cards")
+        .select("card_name,total_limit,available_limit")
+        .execute()
+    )
+
+    stored = {
+        str(item.get("card_name")): {
+            "total_limit": int(item.get("total_limit") or 0),
+            "available_limit": int(item.get("available_limit") or 0),
+        }
+        for item in (response.data or [])
+    }
+
+    return {
+        card: stored.get(
+            card,
+            {"total_limit": 0, "available_limit": 0},
+        )
+        for card in CREDIT_CARDS
+    }
+
+
+def set_credit_card_values(
+    card_name: str,
+    total_limit: int | None = None,
+    available_limit: int | None = None,
+) -> None:
+    current = get_credit_cards().get(
+        card_name,
+        {"total_limit": 0, "available_limit": 0},
+    )
+
+    new_total = (
+        current["total_limit"]
+        if total_limit is None
+        else total_limit
+    )
+    new_available = (
+        current["available_limit"]
+        if available_limit is None
+        else available_limit
+    )
+
+    if new_total < 0 or new_available < 0:
+        raise ValueError("額度不可小於 0")
+
+    if new_total > 0 and new_available > new_total:
+        raise ValueError("可用額度不可大於總額度")
+
+    (
+        supabase
+        .table("credit_cards")
+        .upsert(
+            {
+                "card_name": card_name,
+                "total_limit": new_total,
+                "available_limit": new_available,
+                "updated_at": datetime.now(TAIPEI).isoformat(),
+            },
+            on_conflict="card_name",
+        )
+        .execute()
+    )
+
+
+def build_credit_card_rows(
+    cards: dict[str, dict[str, int]],
+) -> tuple[str, int, int]:
+    rows = ""
+    total_limit_sum = 0
+    available_limit_sum = 0
+
+    for card_name, values in cards.items():
+        total_limit = int(values.get("total_limit") or 0)
+        available_limit = int(values.get("available_limit") or 0)
+        percent = (
+            available_limit / total_limit * 100
+            if total_limit > 0
+            else 0
+        )
+
+        total_limit_sum += total_limit
+        available_limit_sum += available_limit
+
+        rows += f"""
+        <div class="bank-balance-item">
+            <div class="summary-row">
+                <span>{escape(card_name)}</span>
+                <strong>NT$ {available_limit:,.0f}</strong>
+            </div>
+            <div class="muted" style="margin:6px 0;">
+                總額度 NT$ {total_limit:,.0f}
+            </div>
+            <div class="progress">
+                <div class="progress-bar credit-card-bar"
+                     style="width:{percent:.1f}%"></div>
+            </div>
+            <div class="muted">可用額度比例 {percent:.1f}%</div>
+        </div>
+        """
+
+    return rows, total_limit_sum, available_limit_sum
+
+
 JINJIA_BILLS = ("水費", "電費", "網路費")
 JINJIA_PEOPLE = ("俊億", "宗暉", "俊宏")
 
@@ -455,22 +642,51 @@ def home():
     current_month = datetime.now(TAIPEI).strftime("%Y-%m")
 
     try:
-        personal_current_balance = calculate_account_balance(
-            "個人",
-            transactions,
-        )
+        personal_bank_balances = get_bank_balances("個人")
     except Exception as error:
-        print("讀取個人帳戶餘額失敗：", error)
-        personal_current_balance = 0
+        print("讀取個人銀行餘額失敗：", error)
+        personal_bank_balances = {bank: 0 for bank in PERSONAL_BANKS}
 
     try:
-        jinjia_current_balance = calculate_account_balance(
-            "金家水電",
-            jinjia_transactions,
-        )
+        jinjia_bank_balances = get_bank_balances("金家")
     except Exception as error:
-        print("讀取金家帳戶餘額失敗：", error)
-        jinjia_current_balance = 0
+        print("讀取金家銀行餘額失敗：", error)
+        jinjia_bank_balances = {bank: 0 for bank in JINJIA_BANKS}
+
+    personal_current_balance = sum(personal_bank_balances.values())
+    jinjia_current_balance = sum(jinjia_bank_balances.values())
+
+    personal_bank_rows = build_bank_balance_rows(
+        personal_bank_balances,
+        personal_current_balance,
+        "personal-bank-bar",
+    )
+    jinjia_bank_rows = build_bank_balance_rows(
+        jinjia_bank_balances,
+        jinjia_current_balance,
+        "jinjia-bank-bar",
+    )
+
+    try:
+        credit_cards = get_credit_cards()
+    except Exception as error:
+        print("讀取信用卡額度失敗：", error)
+        credit_cards = {
+            card: {"total_limit": 0, "available_limit": 0}
+            for card in CREDIT_CARDS
+        }
+
+    (
+        credit_card_rows,
+        total_credit_limit,
+        total_available_credit,
+    ) = build_credit_card_rows(credit_cards)
+
+    total_credit_percent = (
+        total_available_credit / total_credit_limit * 100
+        if total_credit_limit > 0
+        else 0
+    )
 
     try:
         jinjia_statuses = get_jinjia_statuses(current_month)
@@ -937,6 +1153,25 @@ def home():
             .current-balance {{
                 color: #7c3aed;
             }}
+            .bank-balance-list {{
+                display: grid;
+                gap: 14px;
+            }}
+            .bank-balance-item {{
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+                padding: 14px;
+                background: #ffffff;
+            }}
+            .personal-bank-bar {{
+                background: linear-gradient(90deg, #2563eb, #60a5fa);
+            }}
+            .jinjia-bank-bar {{
+                background: linear-gradient(90deg, #d97706, #fbbf24);
+            }}
+            .credit-card-bar {{
+                background: linear-gradient(90deg, #7c3aed, #c084fc);
+            }}
             .status-grid {{
                 display: grid;
                 grid-template-columns: repeat(3, 1fr);
@@ -1037,7 +1272,7 @@ def home():
         <div class="container">
             <div class="summary">
                 <div class="card">
-                    <div class="card-title">目前帳戶餘額</div>
+                    <div class="card-title">個人銀行總餘額</div>
                     <div class="amount current-balance">
                         NT$ {personal_current_balance:,.0f}
                     </div>
@@ -1057,6 +1292,15 @@ def home():
                 <div class="card">
                     <div class="card-title">總負債</div>
                     <div class="amount debt">NT$ {total_debt:,.0f}</div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>個人銀行帳戶餘額</h2>
+                <div class="bank-balance-list">{personal_bank_rows}</div>
+                <div class="summary-row" style="margin-top:16px;">
+                    <strong>個人總餘額</strong>
+                    <strong>NT$ {personal_current_balance:,.0f}</strong>
                 </div>
             </div>
 
@@ -1088,13 +1332,39 @@ def home():
 
             <div class="section">
                 <div class="account-header">
+                    <h2>信用卡可用額度</h2>
+                    <span class="account-badge">獨立顯示</span>
+                </div>
+
+                <div class="bank-balance-list">{credit_card_rows}</div>
+
+                <div class="summary" style="margin-top:18px;">
+                    <div class="card">
+                        <div class="card-title">總信用額度</div>
+                        <div class="amount">NT$ {total_credit_limit:,.0f}</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">總可用額度</div>
+                        <div class="amount current-balance">
+                            NT$ {total_available_credit:,.0f}
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">整體可用比例</div>
+                        <div class="amount">{total_credit_percent:.1f}%</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="account-header">
                     <h2>金家水電帳戶</h2>
                     <span class="account-badge">獨立帳戶</span>
                 </div>
 
                 <div class="summary" style="margin-top:0;">
                     <div class="card">
-                        <div class="card-title">目前帳戶餘額</div>
+                        <div class="card-title">王道銀行餘額</div>
                         <div class="amount current-balance">
                             NT$ {jinjia_current_balance:,.0f}
                         </div>
@@ -1112,6 +1382,9 @@ def home():
                         <div class="amount balance">NT$ {jinjia_balance:,.0f}</div>
                     </div>
                 </div>
+
+                <h3 style="margin:22px 0 12px;">王道銀行帳戶比例</h3>
+                <div class="bank-balance-list">{jinjia_bank_rows}</div>
 
                 <h3 style="margin:22px 0 12px;">帳單繳交狀態</h3>
                 <div class="status-grid">{bill_status_cards}</div>
@@ -1229,8 +1502,16 @@ def handle_message(event: MessageEvent):
             "收入：薪水 70000\n"
             "金家支出：金家支出 水費 3000\n"
             "金家收入：金家收入 15000\n"
-            "設定餘額：設定個人餘額 100000\n"
-            "設定餘額：設定金家餘額 80000\n"
+            "銀行餘額：設定玉山銀行 100000\n"
+            "銀行餘額：設定中國信託 50000\n"
+            "銀行餘額：設定渣打銀行 30000\n"
+            "銀行餘額：設定華南銀行 20000\n"
+            "銀行餘額：設定LINE Bank 15000\n"
+            "銀行餘額：設定LINE Pay Money 5000\n"
+            "金家餘額：設定王道銀行 80000\n"
+            "信用卡總額度：設定玉山信用卡額度 100000\n"
+            "信用卡可用額度：設定玉山信用卡可用額度 65000\n"
+            "信用卡查詢：信用卡額度\n"
             "帳單狀態：水費 已繳交 650\n"
             "人物狀態：俊億 未繳交 3500\n"
             "狀態查詢：金家狀態\n"
@@ -1247,61 +1528,184 @@ def handle_message(event: MessageEvent):
         )
         return
 
-    # 帳戶餘額設定與查詢
-    balance_match = re.match(
-        r"^設定(個人|金家)餘額\s+(-?\d[\d,]*)\s*$",
+    # 信用卡額度設定與查詢
+    credit_total_match = re.match(
+        r"^設定(玉山信用卡|中信信用卡|兆豐信用卡)額度\s+(\d[\d,]*)\s*$",
         user_text,
     )
 
-    if balance_match:
-        account_label = balance_match.group(1)
-        account = "個人" if account_label == "個人" else "金家水電"
+    if credit_total_match:
+        card_name = credit_total_match.group(1)
+        total_limit = int(
+            credit_total_match.group(2).replace(",", "")
+        )
 
         try:
-            target_balance = int(
-                balance_match.group(2).replace(",", "")
+            current = get_credit_cards().get(
+                card_name,
+                {"available_limit": 0},
             )
-            records = get_account_transactions(account)
-            set_account_current_balance(
-                account,
-                target_balance,
-                records,
+            available_limit = min(
+                int(current.get("available_limit") or 0),
+                total_limit,
+            )
+            set_credit_card_values(
+                card_name,
+                total_limit=total_limit,
+                available_limit=available_limit,
             )
         except Exception as error:
-            print("設定帳戶餘額失敗：", error)
-            reply_line(event, "設定帳戶餘額失敗，請稍後再試。")
+            print("設定信用卡總額度失敗：", error)
+            reply_line(event, f"設定失敗：{error}")
             return
 
         reply_line(
             event,
-            f"✅ 已設定{account}目前餘額\n"
+            f"✅ 已設定{card_name}總額度\n"
+            f"NT$ {total_limit:,}",
+        )
+        return
+
+    credit_available_match = re.match(
+        r"^設定(玉山信用卡|中信信用卡|兆豐信用卡)可用額度\s+(\d[\d,]*)\s*$",
+        user_text,
+    )
+
+    if credit_available_match:
+        card_name = credit_available_match.group(1)
+        available_limit = int(
+            credit_available_match.group(2).replace(",", "")
+        )
+
+        try:
+            set_credit_card_values(
+                card_name,
+                available_limit=available_limit,
+            )
+        except Exception as error:
+            print("設定信用卡可用額度失敗：", error)
+            reply_line(event, f"設定失敗：{error}")
+            return
+
+        reply_line(
+            event,
+            f"✅ 已設定{card_name}可用額度\n"
+            f"NT$ {available_limit:,}",
+        )
+        return
+
+    if user_text in {"信用卡額度", "可用額度", "信用卡查詢"}:
+        try:
+            cards = get_credit_cards()
+        except Exception as error:
+            print("信用卡額度查詢失敗：", error)
+            reply_line(event, "信用卡額度查詢失敗，請稍後再試。")
+            return
+
+        lines = ["💳 信用卡可用額度"]
+        total_limit_sum = 0
+        available_limit_sum = 0
+
+        for card_name, values in cards.items():
+            total_limit = int(values.get("total_limit") or 0)
+            available_limit = int(values.get("available_limit") or 0)
+            percent = (
+                available_limit / total_limit * 100
+                if total_limit > 0
+                else 0
+            )
+
+            total_limit_sum += total_limit
+            available_limit_sum += available_limit
+
+            lines.append(
+                f"{card_name}\n"
+                f"可用：NT$ {available_limit:,}\n"
+                f"比例：{percent:.1f}%"
+            )
+
+        total_percent = (
+            available_limit_sum / total_limit_sum * 100
+            if total_limit_sum > 0
+            else 0
+        )
+        lines.append(
+            f"\n總額度：NT$ {total_limit_sum:,}\n"
+            f"總可用：NT$ {available_limit_sum:,}\n"
+            f"整體比例：{total_percent:.1f}%"
+        )
+
+        reply_line(event, "\n\n".join(lines))
+        return
+
+    # 銀行帳戶餘額設定與查詢
+    bank_balance_match = re.match(
+        r"^設定(玉山銀行|中國信託|渣打銀行|華南銀行|LINE Bank|LINE Pay Money|王道銀行)"
+        r"\s+(-?\d[\d,]*)\s*$",
+        user_text,
+        re.IGNORECASE,
+    )
+
+    if bank_balance_match:
+        raw_bank_name = bank_balance_match.group(1)
+        normalized_names = {
+            "line bank": "LINE Bank",
+            "line pay money": "LINE Pay Money",
+        }
+        bank_name = normalized_names.get(
+            raw_bank_name.lower(),
+            raw_bank_name,
+        )
+        owner = "金家" if bank_name == "王道銀行" else "個人"
+
+        try:
+            target_balance = int(
+                bank_balance_match.group(2).replace(",", "")
+            )
+            set_bank_balance(owner, bank_name, target_balance)
+        except Exception as error:
+            print("設定銀行餘額失敗：", error)
+            reply_line(event, "設定銀行餘額失敗，請稍後再試。")
+            return
+
+        reply_line(
+            event,
+            f"✅ 已設定{bank_name}餘額\n"
             f"NT$ {target_balance:,}",
         )
         return
 
-    if user_text in {"餘額查詢", "帳戶餘額"}:
+    if user_text in {"餘額查詢", "帳戶餘額", "銀行餘額"}:
         try:
-            personal_records = get_account_transactions("個人")
-            jinjia_records = get_account_transactions("金家水電")
-            personal_balance = calculate_account_balance(
-                "個人",
-                personal_records,
-            )
-            jinjia_balance = calculate_account_balance(
-                "金家水電",
-                jinjia_records,
-            )
+            personal_balances = get_bank_balances("個人")
+            jinjia_balances = get_bank_balances("金家")
         except Exception as error:
-            print("餘額查詢失敗：", error)
-            reply_line(event, "餘額查詢失敗，請稍後再試。")
+            print("銀行餘額查詢失敗：", error)
+            reply_line(event, "銀行餘額查詢失敗，請稍後再試。")
             return
 
-        reply_line(
-            event,
-            f"💰 帳戶餘額\n"
-            f"個人：NT$ {personal_balance:,}\n"
-            f"金家水電：NT$ {jinjia_balance:,}",
-        )
+        personal_total = sum(personal_balances.values())
+        jinjia_total = sum(jinjia_balances.values())
+
+        lines = ["💰 個人銀行帳戶"]
+        for bank_name, balance in personal_balances.items():
+            percent = balance / personal_total * 100 if personal_total > 0 else 0
+            lines.append(
+                f"{bank_name}：NT$ {balance:,}（{percent:.1f}%）"
+            )
+
+        lines.append(f"個人總餘額：NT$ {personal_total:,}")
+        lines.append("")
+        lines.append("🏠 金家銀行帳戶")
+
+        for bank_name, balance in jinjia_balances.items():
+            percent = balance / jinjia_total * 100 if jinjia_total > 0 else 0
+            lines.append(
+                f"{bank_name}：NT$ {balance:,}（{percent:.1f}%）"
+            )
+
+        lines.append(f"金家總餘額：NT$ {jinjia_total:,}")
+        reply_line(event, "\n".join(lines))
         return
 
     # 金家帳單 / 人物繳交狀態
