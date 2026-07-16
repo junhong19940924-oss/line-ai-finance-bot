@@ -5,7 +5,7 @@ from html import escape
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from flask import Flask, abort, request
+from flask import Flask, abort, redirect, request, session, url_for
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
@@ -20,11 +20,13 @@ from supabase import Client, create_client
 
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "change-this-secret-key")
 
 LINE_CHANNEL_SECRET = os.environ["LINE_CHANNEL_SECRET"]
 LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
@@ -204,6 +206,90 @@ def normalize_account(value: str | None) -> str:
     if account in {"金家", "金家帳戶", "金家水電帳戶"}:
         return "金家水電"
     return account if account else "個人"
+
+
+def get_latest_transaction(
+    user_id: str,
+    account: str | None = None,
+) -> dict[str, Any] | None:
+    query = (
+        supabase
+        .table("transactions")
+        .select("*")
+        .eq("line_user_id", user_id)
+        .order("created_at", desc=True)
+        .limit(1)
+    )
+
+    if account:
+        query = query.eq("account", account)
+
+    response = query.execute()
+    rows = response.data or []
+    return rows[0] if rows else None
+
+
+def update_transaction_record(
+    transaction_id: Any,
+    *,
+    transaction_type: str | None = None,
+    category: str | None = None,
+    amount: int | None = None,
+    description: str | None = None,
+    account: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+
+    if transaction_type is not None:
+        if transaction_type not in {"收入", "支出"}:
+            raise ValueError("類型只能是收入或支出")
+        payload["type"] = transaction_type
+
+    if category is not None:
+        cleaned_category = category.strip()
+        if not cleaned_category:
+            raise ValueError("分類不可空白")
+        payload["category"] = cleaned_category
+
+    if amount is not None:
+        if amount <= 0:
+            raise ValueError("金額必須大於 0")
+        payload["amount"] = amount
+
+    if description is not None:
+        cleaned_description = description.strip()
+        if not cleaned_description:
+            raise ValueError("項目不可空白")
+        payload["description"] = cleaned_description
+
+    if account is not None:
+        normalized = normalize_account(account)
+        if normalized not in {"個人", "金家水電"}:
+            raise ValueError("帳戶只能是個人或金家水電")
+        payload["account"] = normalized
+
+    if not payload:
+        raise ValueError("沒有可修改的內容")
+
+    response = (
+        supabase
+        .table("transactions")
+        .update(payload)
+        .eq("id", transaction_id)
+        .execute()
+    )
+    rows = response.data or []
+    return rows[0] if rows else payload
+
+
+def delete_transaction_record(transaction_id: Any) -> None:
+    (
+        supabase
+        .table("transactions")
+        .delete()
+        .eq("id", transaction_id)
+        .execute()
+    )
 
 
 def get_account_transactions(
@@ -1610,6 +1696,40 @@ def home():
             </div>
 
             <div class="section">
+                <div class="account-header">
+                    <h2>LINE 指令表</h2>
+                    <a class="account-badge" href="/admin"
+                       style="text-decoration:none;">開啟網頁管理</a>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>功能</th><th>指令格式</th><th>範例</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>個人支出</td><td>項目 金額</td><td>早餐 85</td></tr>
+                            <tr><td>個人收入</td><td>收入項目 金額</td><td>薪水 55000</td></tr>
+                            <tr><td>金家收入</td><td>金家收入 金額</td><td>金家收入 4500</td></tr>
+                            <tr><td>金家支出</td><td>金家支出 項目 金額</td><td>金家支出 材料 3000</td></tr>
+                            <tr><td>刷卡</td><td>刷卡 項目 金額</td><td>刷卡 電影 500</td></tr>
+                            <tr><td>負債</td><td>負債 名稱 金額</td><td>負債 車貸 180000</td></tr>
+                            <tr><td>還款</td><td>還款 名稱 金額</td><td>還款 車貸 5000</td></tr>
+                            <tr><td>銀行餘額</td><td>設定 銀行 金額</td><td>設定 中國信託 215</td></tr>
+                            <tr><td>信用卡總額度</td><td>設定信用卡額度</td><td>設定玉山信用卡額度 100000</td></tr>
+                            <tr><td>信用卡可用額度</td><td>設定信用卡可用額度</td><td>設定玉山信用卡可用額度 65000</td></tr>
+                            <tr><td>查看上一筆</td><td>查看上一筆</td><td>查看上一筆</td></tr>
+                            <tr><td>修改上一筆</td><td>修改上一筆 項目 金額</td><td>修改上一筆 午餐 150</td></tr>
+                            <tr><td>修改金額</td><td>修改上一筆金額 金額</td><td>修改上一筆金額 150</td></tr>
+                            <tr><td>修改項目</td><td>修改上一筆項目 項目</td><td>修改上一筆項目 午餐</td></tr>
+                            <tr><td>修改分類</td><td>修改上一筆分類 分類</td><td>修改上一筆分類 飲食</td></tr>
+                            <tr><td>刪除上一筆</td><td>刪除上一筆 → 確認刪除</td><td>刪除上一筆</td></tr>
+                            <tr><td>系統檢查</td><td>系統檢查</td><td>系統檢查</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="section">
                 <h2>LINE Bot 狀態</h2>
                 <span class="status">系統運作中</span>
                 <p style="margin-top:12px;color:#6b7280;line-height:1.8;">
@@ -1689,6 +1809,325 @@ def run_system_health_checks() -> dict[str, Any]:
     }
 
 
+def admin_logged_in() -> bool:
+    return bool(session.get("finance_admin"))
+
+
+def admin_page(message: str = "") -> str:
+    login_message = (
+        f'<div class="notice">{escape(message)}</div>'
+        if message
+        else ""
+    )
+
+    if not admin_logged_in():
+        return f"""
+        <!doctype html>
+        <html lang="zh-Hant">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>財務管理登入</title>
+            <style>
+                body {{font-family:-apple-system,"Microsoft JhengHei",sans-serif;
+                background:#f5f5f7;margin:0;padding:24px;color:#1d1d1f}}
+                .box {{max-width:420px;margin:10vh auto;background:white;padding:28px;
+                border-radius:24px;box-shadow:0 18px 60px rgba(0,0,0,.1)}}
+                input,button {{width:100%;padding:13px;border-radius:12px;
+                border:1px solid #ddd;margin-top:12px;font-size:16px;box-sizing:border-box}}
+                button {{background:#007aff;color:white;border:0;font-weight:700}}
+                .notice {{background:#fff3cd;padding:12px;border-radius:10px;margin-bottom:12px}}
+            </style>
+        </head>
+        <body>
+            <div class="box">
+                <h1>財務管理登入</h1>
+                <p>請輸入管理密碼。</p>
+                {login_message}
+                <form method="post" action="/admin/login">
+                    <input type="password" name="password" required placeholder="管理密碼">
+                    <button type="submit">登入</button>
+                </form>
+            </div>
+        </body>
+        </html>
+        """
+
+    try:
+        response = (
+            supabase
+            .table("transactions")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(100)
+            .execute()
+        )
+        records = response.data or []
+    except Exception as error:
+        records = []
+        message = f"讀取記帳資料失敗：{error}"
+
+    rows = ""
+    for item in records:
+        transaction_id = escape(str(item.get("id") or ""))
+        created_at = escape(format_taipei_datetime(item.get("created_at")))
+        account = escape(normalize_account(item.get("account")))
+        tx_type = escape(str(item.get("type") or ""))
+        category = escape(str(item.get("category") or ""))
+        description = escape(str(item.get("description") or ""))
+        amount = int(item.get("amount") or 0)
+
+        rows += f"""
+        <tr>
+            <td>{created_at}</td>
+            <td>{account}</td>
+            <td>{tx_type}</td>
+            <td>{category}</td>
+            <td>{description}</td>
+            <td>NT$ {amount:,}</td>
+            <td class="actions">
+                <a href="/admin/transaction/{transaction_id}/edit">編輯</a>
+                <form method="post" action="/admin/transaction/{transaction_id}/delete"
+                      onsubmit="return confirm('確定刪除這筆記帳？')">
+                    <button type="submit" class="danger">刪除</button>
+                </form>
+            </td>
+        </tr>
+        """
+
+    if not rows:
+        rows = '<tr><td colspan="7">目前沒有記帳資料。</td></tr>'
+
+    notice = f'<div class="notice">{escape(message)}</div>' if message else ""
+
+    return f"""
+    <!doctype html>
+    <html lang="zh-Hant">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>網頁記帳管理</title>
+        <style>
+            body {{font-family:-apple-system,"Microsoft JhengHei",sans-serif;
+            background:#f5f5f7;margin:0;color:#1d1d1f}}
+            .wrap {{width:min(1180px,94%);margin:30px auto}}
+            .card {{background:white;padding:22px;border-radius:22px;
+            box-shadow:0 14px 45px rgba(0,0,0,.08);margin-bottom:20px}}
+            .grid {{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}}
+            input,select,button {{padding:11px;border-radius:10px;border:1px solid #ddd;
+            font-size:15px;box-sizing:border-box}}
+            button,.button {{background:#007aff;color:white;border:0;font-weight:700;
+            text-decoration:none;display:inline-block;padding:11px 14px;border-radius:10px}}
+            .danger {{background:#ff3b30;padding:8px 10px}}
+            table {{width:100%;border-collapse:collapse}}
+            th,td {{padding:11px;border-bottom:1px solid #eee;text-align:left}}
+            .table-wrap {{overflow:auto}}
+            .actions {{display:flex;gap:8px;align-items:center}}
+            .actions form {{margin:0}}
+            .notice {{background:#e8f3ff;padding:12px;border-radius:12px;margin-bottom:14px}}
+            .top {{display:flex;justify-content:space-between;align-items:center;gap:12px}}
+            @media(max-width:760px) {{
+                .grid {{grid-template-columns:1fr}}
+                th,td {{font-size:13px;white-space:nowrap}}
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="wrap">
+            <div class="top">
+                <h1>網頁記帳管理</h1>
+                <div>
+                    <a class="button" href="/">回首頁</a>
+                    <a class="button" href="/admin/logout">登出</a>
+                </div>
+            </div>
+            {notice}
+            <div class="card">
+                <h2>新增記帳</h2>
+                <form method="post" action="/admin/transaction/add" class="grid">
+                    <select name="account">
+                        <option value="個人">個人</option>
+                        <option value="金家水電">金家水電</option>
+                    </select>
+                    <select name="type">
+                        <option value="支出">支出</option>
+                        <option value="收入">收入</option>
+                    </select>
+                    <input name="description" required placeholder="項目，例如早餐">
+                    <input name="category" placeholder="分類，可留白自動判斷">
+                    <input name="amount" required type="number" min="1" placeholder="金額">
+                    <button type="submit">新增</button>
+                </form>
+            </div>
+            <div class="card">
+                <h2>最近 100 筆記帳</h2>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>時間</th><th>帳戶</th><th>類型</th>
+                            <th>分類</th><th>項目</th><th>金額</th><th>操作</th></tr>
+                        </thead>
+                        <tbody>{rows}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+
+@app.route("/admin", methods=["GET"])
+def admin_home():
+    return admin_page(request.args.get("message", ""))
+
+
+@app.route("/admin/login", methods=["POST"])
+def admin_login():
+    if not ADMIN_PASSWORD:
+        return admin_page("尚未設定 ADMIN_PASSWORD 環境變數。"), 503
+
+    if request.form.get("password", "") != ADMIN_PASSWORD:
+        return admin_page("管理密碼錯誤。"), 401
+
+    session["finance_admin"] = True
+    return redirect(url_for("admin_home"))
+
+
+@app.route("/admin/logout", methods=["GET"])
+def admin_logout():
+    session.clear()
+    return redirect(url_for("admin_home"))
+
+
+@app.route("/admin/transaction/add", methods=["POST"])
+def admin_add_transaction():
+    if not admin_logged_in():
+        return redirect(url_for("admin_home"))
+
+    description = request.form.get("description", "").strip()
+    transaction_type = request.form.get("type", "").strip()
+    account = normalize_account(request.form.get("account"))
+    amount = parse_positive_int(request.form.get("amount", ""))
+    category = request.form.get("category", "").strip()
+
+    if amount is None or transaction_type not in {"收入", "支出"}:
+        return redirect(url_for("admin_home", message="新增資料格式錯誤。"))
+
+    if not category:
+        category = (
+            classify_income(description)
+            if transaction_type == "收入"
+            else classify_expense(description)
+        )
+
+    try:
+        (
+            supabase
+            .table("transactions")
+            .insert(
+                {
+                    "line_user_id": "WEB_ADMIN",
+                    "account": account,
+                    "type": transaction_type,
+                    "category": category,
+                    "amount": amount,
+                    "description": description,
+                }
+            )
+            .execute()
+        )
+    except Exception as error:
+        return redirect(url_for("admin_home", message=f"新增失敗：{error}"))
+
+    return redirect(url_for("admin_home", message="新增成功。"))
+
+
+@app.route("/admin/transaction/<transaction_id>/edit", methods=["GET", "POST"])
+def admin_edit_transaction(transaction_id: str):
+    if not admin_logged_in():
+        return redirect(url_for("admin_home"))
+
+    if request.method == "POST":
+        amount = parse_positive_int(request.form.get("amount", ""))
+        if amount is None:
+            return redirect(url_for("admin_home", message="金額格式錯誤。"))
+
+        try:
+            update_transaction_record(
+                transaction_id,
+                transaction_type=request.form.get("type"),
+                category=request.form.get("category"),
+                amount=amount,
+                description=request.form.get("description"),
+                account=request.form.get("account"),
+            )
+        except Exception as error:
+            return redirect(url_for("admin_home", message=f"修改失敗：{error}"))
+
+        return redirect(url_for("admin_home", message="修改成功。"))
+
+    response = (
+        supabase
+        .table("transactions")
+        .select("*")
+        .eq("id", transaction_id)
+        .limit(1)
+        .execute()
+    )
+    rows = response.data or []
+    if not rows:
+        return redirect(url_for("admin_home", message="找不到這筆記帳。"))
+
+    item = rows[0]
+    account = normalize_account(item.get("account"))
+    transaction_type = str(item.get("type") or "支出")
+
+    return f"""
+    <!doctype html><html lang="zh-Hant"><head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>編輯記帳</title>
+    <style>
+        body {{font-family:-apple-system,"Microsoft JhengHei";background:#f5f5f7;padding:24px}}
+        form {{max-width:520px;margin:auto;background:white;padding:26px;border-radius:22px;
+        box-shadow:0 16px 45px rgba(0,0,0,.09)}}
+        input,select,button,a {{display:block;width:100%;padding:12px;margin-top:12px;
+        border-radius:11px;border:1px solid #ddd;box-sizing:border-box;font-size:16px}}
+        button {{background:#007aff;color:white;border:0;font-weight:700}}
+        a {{text-align:center;text-decoration:none;color:#007aff}}
+    </style></head><body>
+    <form method="post">
+        <h1>編輯記帳</h1>
+        <select name="account">
+            <option value="個人" {'selected' if account == '個人' else ''}>個人</option>
+            <option value="金家水電" {'selected' if account == '金家水電' else ''}>金家水電</option>
+        </select>
+        <select name="type">
+            <option value="支出" {'selected' if transaction_type == '支出' else ''}>支出</option>
+            <option value="收入" {'selected' if transaction_type == '收入' else ''}>收入</option>
+        </select>
+        <input name="description" required value="{escape(str(item.get('description') or ''))}">
+        <input name="category" required value="{escape(str(item.get('category') or ''))}">
+        <input name="amount" type="number" min="1" required value="{int(item.get('amount') or 0)}">
+        <button type="submit">儲存修改</button>
+        <a href="/admin">取消</a>
+    </form></body></html>
+    """
+
+
+@app.route("/admin/transaction/<transaction_id>/delete", methods=["POST"])
+def admin_delete_transaction(transaction_id: str):
+    if not admin_logged_in():
+        return redirect(url_for("admin_home"))
+
+    try:
+        delete_transaction_record(transaction_id)
+    except Exception as error:
+        return redirect(url_for("admin_home", message=f"刪除失敗：{error}"))
+
+    return redirect(url_for("admin_home", message="刪除成功。"))
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return {"status": "ok"}, 200
@@ -1728,6 +2167,185 @@ def handle_message(event: MessageEvent):
     user_text = event.message.text.strip()
     user_id = event.source.user_id
 
+    if user_text in {"查看上一筆", "上一筆"}:
+        try:
+            item = get_latest_transaction(user_id)
+        except Exception as error:
+            print("查看上一筆失敗：", error)
+            reply_line(event, "查看上一筆失敗，請稍後再試。")
+            return
+
+        if not item:
+            reply_line(event, "目前沒有可查看的記帳資料。")
+            return
+
+        reply_line(
+            event,
+            "🧾 上一筆記帳\n"
+            f"帳戶：{normalize_account(item.get('account'))}\n"
+            f"類型：{item.get('type')}\n"
+            f"分類：{item.get('category')}\n"
+            f"項目：{item.get('description')}\n"
+            f"金額：NT$ {int(item.get('amount') or 0):,}",
+        )
+        return
+
+    edit_last_full_match = re.match(
+        r"^修改上一筆\s+(.+?)\s+(\d[\d,]*)\s*$",
+        user_text,
+    )
+    if edit_last_full_match:
+        description = edit_last_full_match.group(1).strip()
+        amount = parse_positive_int(edit_last_full_match.group(2))
+        try:
+            item = get_latest_transaction(user_id)
+            if not item:
+                reply_line(event, "目前沒有可修改的記帳資料。")
+                return
+            transaction_type = str(item.get("type") or "支出")
+            category = (
+                classify_income(description)
+                if transaction_type == "收入"
+                else classify_expense(description)
+            )
+            update_transaction_record(
+                item.get("id"),
+                description=description,
+                amount=amount,
+                category=category,
+            )
+        except Exception as error:
+            print("修改上一筆失敗：", error)
+            reply_line(event, f"修改上一筆失敗：{error}")
+            return
+
+        reply_line(
+            event,
+            f"✅ 已修改上一筆\n項目：{description}\n金額：NT$ {amount:,}",
+        )
+        return
+
+    edit_last_amount_match = re.match(
+        r"^修改上一筆金額\s+(\d[\d,]*)\s*$",
+        user_text,
+    )
+    if edit_last_amount_match:
+        amount = parse_positive_int(edit_last_amount_match.group(1))
+        try:
+            item = get_latest_transaction(user_id)
+            if not item:
+                reply_line(event, "目前沒有可修改的記帳資料。")
+                return
+            update_transaction_record(item.get("id"), amount=amount)
+        except Exception as error:
+            print("修改上一筆金額失敗：", error)
+            reply_line(event, f"修改失敗：{error}")
+            return
+
+        reply_line(event, f"✅ 上一筆金額已修改為 NT$ {amount:,}")
+        return
+
+    edit_last_desc_match = re.match(
+        r"^修改上一筆項目\s+(.+?)\s*$",
+        user_text,
+    )
+    if edit_last_desc_match:
+        description = edit_last_desc_match.group(1).strip()
+        try:
+            item = get_latest_transaction(user_id)
+            if not item:
+                reply_line(event, "目前沒有可修改的記帳資料。")
+                return
+            transaction_type = str(item.get("type") or "支出")
+            category = (
+                classify_income(description)
+                if transaction_type == "收入"
+                else classify_expense(description)
+            )
+            update_transaction_record(
+                item.get("id"),
+                description=description,
+                category=category,
+            )
+        except Exception as error:
+            print("修改上一筆項目失敗：", error)
+            reply_line(event, f"修改失敗：{error}")
+            return
+
+        reply_line(event, f"✅ 上一筆項目已修改為：{description}")
+        return
+
+    edit_last_category_match = re.match(
+        r"^修改上一筆分類\s+(.+?)\s*$",
+        user_text,
+    )
+    if edit_last_category_match:
+        category = edit_last_category_match.group(1).strip()
+        try:
+            item = get_latest_transaction(user_id)
+            if not item:
+                reply_line(event, "目前沒有可修改的記帳資料。")
+                return
+            update_transaction_record(item.get("id"), category=category)
+        except Exception as error:
+            print("修改上一筆分類失敗：", error)
+            reply_line(event, f"修改失敗：{error}")
+            return
+
+        reply_line(event, f"✅ 上一筆分類已修改為：{category}")
+        return
+
+    if user_text == "刪除上一筆":
+        try:
+            item = get_latest_transaction(user_id)
+        except Exception as error:
+            print("準備刪除上一筆失敗：", error)
+            reply_line(event, "讀取上一筆失敗，請稍後再試。")
+            return
+
+        if not item:
+            reply_line(event, "目前沒有可刪除的記帳資料。")
+            return
+
+        session_key = f"pending_delete_{user_id}"
+        app.config[session_key] = {
+            "id": item.get("id"),
+            "description": item.get("description"),
+            "amount": int(item.get("amount") or 0),
+        }
+        reply_line(
+            event,
+            "⚠️ 準備刪除上一筆\n"
+            f"項目：{item.get('description')}\n"
+            f"金額：NT$ {int(item.get('amount') or 0):,}\n\n"
+            "請輸入「確認刪除」完成刪除；輸入「取消刪除」取消。",
+        )
+        return
+
+    if user_text == "取消刪除":
+        app.config.pop(f"pending_delete_{user_id}", None)
+        reply_line(event, "已取消刪除。")
+        return
+
+    if user_text == "確認刪除":
+        pending = app.config.pop(f"pending_delete_{user_id}", None)
+        if not pending:
+            reply_line(event, "目前沒有待確認的刪除操作。")
+            return
+
+        try:
+            delete_transaction_record(pending["id"])
+        except Exception as error:
+            print("確認刪除失敗：", error)
+            reply_line(event, "刪除失敗，請稍後再試。")
+            return
+
+        reply_line(
+            event,
+            f"✅ 已刪除：{pending['description']} NT$ {pending['amount']:,}",
+        )
+        return
+
     if user_text in {"系統檢查", "健康檢查", "系統狀態"}:
         report = run_system_health_checks()
         lines = [
@@ -1760,6 +2378,12 @@ def handle_message(event: MessageEvent):
             event,
             "📘 使用方式\n\n"
             "系統檢查：系統檢查\n"
+            "查看上一筆：查看上一筆\n"
+            "修改上一筆：修改上一筆 午餐 150\n"
+            "修改金額：修改上一筆金額 150\n"
+            "修改項目：修改上一筆項目 午餐\n"
+            "修改分類：修改上一筆分類 飲食\n"
+            "刪除上一筆：刪除上一筆\n"
             "支出：早餐 85\n"
             "刷卡：刷卡 電影 500\n"
             "收入：薪水 70000\n"
