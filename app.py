@@ -1,4 +1,6 @@
 import os
+import ast
+import operator
 import re
 from datetime import datetime
 from html import escape
@@ -33,6 +35,7 @@ configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 TAIPEI = ZoneInfo("Asia/Taipei")
+APP_VERSION = "1.0.0 Stable"
 
 
 # ----------------------------
@@ -62,6 +65,56 @@ def format_taipei_datetime(value: str | None) -> str:
         return parsed.astimezone(TAIPEI).strftime("%Y/%m/%d %H:%M")
     except (ValueError, TypeError):
         return str(value)[:16].replace("T", " ")
+
+
+ALLOWED_MATH_OPERATORS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.USub: operator.neg,
+    ast.UAdd: operator.pos,
+}
+
+
+def safe_eval_number_expression(expression: str, current_value: int = 0) -> int:
+    raw = (expression or "").replace(",", "").replace(" ", "")
+    if not raw:
+        raise ValueError("數字不可空白")
+    if len(raw) > 60:
+        raise ValueError("運算式過長")
+
+    if raw[0] in "+-*/":
+        raw = f"{current_value}{raw}"
+
+    try:
+        tree = ast.parse(raw, mode="eval")
+    except SyntaxError as error:
+        raise ValueError("運算格式錯誤") from error
+
+    def evaluate(node):
+        if isinstance(node, ast.Expression):
+            return evaluate(node.body)
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
+                raise ValueError("只允許數字")
+            return node.value
+        if isinstance(node, ast.UnaryOp) and type(node.op) in ALLOWED_MATH_OPERATORS:
+            return ALLOWED_MATH_OPERATORS[type(node.op)](evaluate(node.operand))
+        if isinstance(node, ast.BinOp) and type(node.op) in ALLOWED_MATH_OPERATORS:
+            left = evaluate(node.left)
+            right = evaluate(node.right)
+            if isinstance(node.op, ast.Div) and right == 0:
+                raise ValueError("不可除以 0")
+            return ALLOWED_MATH_OPERATORS[type(node.op)](left, right)
+        raise ValueError("只允許 +、-、*、/ 與括號")
+
+    result = evaluate(tree)
+    if abs(result) > 1_000_000_000_000:
+        raise ValueError("計算結果過大")
+    if result < 0:
+        raise ValueError("結果不可小於 0")
+    return int(round(result))
 
 
 def parse_positive_int(value: str) -> int | None:
@@ -280,6 +333,35 @@ def update_transaction_record(
     )
     rows = response.data or []
     return rows[0] if rows else payload
+
+
+def write_audit_log(
+    *,
+    action: str,
+    source: str,
+    entity_type: str,
+    entity_id: str | int | None = None,
+    before_data: dict[str, Any] | None = None,
+    after_data: dict[str, Any] | None = None,
+) -> None:
+    try:
+        (
+            supabase
+            .table("audit_logs")
+            .insert(
+                {
+                    "action": action,
+                    "source": source,
+                    "entity_type": entity_type,
+                    "entity_id": str(entity_id) if entity_id is not None else None,
+                    "before_data": before_data,
+                    "after_data": after_data,
+                }
+            )
+            .execute()
+        )
+    except Exception as error:
+        print("寫入 audit_logs 失敗：", error)
 
 
 def delete_transaction_record(transaction_id: Any) -> None:
@@ -1796,7 +1878,7 @@ def home():
         </div>
 
         <div class="footer">
-            AI Finance Manager · Powered by LINE Bot
+            AI Finance Manager · Version {APP_VERSION} · Powered by LINE Bot
         </div>
         <script>
             const root = document.documentElement;
@@ -1845,8 +1927,25 @@ def run_system_health_checks() -> dict[str, Any]:
             }
 
     all_ok = all(item["ok"] for item in checks.values())
+    checks["configuration"] = {
+        "ok": bool(ADMIN_PASSWORD)
+        and app.secret_key != "change-this-secret-key",
+        "warnings": [
+            message
+            for condition, message in (
+                (not ADMIN_PASSWORD, "尚未設定 ADMIN_PASSWORD"),
+                (
+                    app.secret_key == "change-this-secret-key",
+                    "尚未設定 FLASK_SECRET_KEY",
+                ),
+            )
+            if condition
+        ],
+    }
+    all_ok = all(item.get("ok", False) for item in checks.values())
     return {
         "status": "ok" if all_ok else "degraded",
+        "version": APP_VERSION,
         "checked_at": datetime.now(TAIPEI).isoformat(),
         "checks": checks,
     }
@@ -1966,7 +2065,7 @@ def admin_page(message: str = "") -> str:
                 <input type="hidden" name="owner" value="{escape(owner)}">
                 <input type="hidden" name="bank_name" value="{escape(bank_name)}">
                 <strong>{escape(bank_name)}</strong>
-                <input type="number" min="0" name="balance" value="{balance}" required>
+                <input type="text" class="math-input" name="balance" value="{balance}" required>
                 <button type="submit">儲存</button>
             </form>
             """
@@ -1993,15 +2092,15 @@ def admin_page(message: str = "") -> str:
         <form method="post" action="/admin/credit-card/update" class="credit-form">
             <input type="hidden" name="card_name" value="{escape(card_name)}">
             <h3>{escape(card_name)}</h3>
-            <label>總額度<input type="number" min="0" name="total_limit"
+            <label>總額度<input type="text" class="math-input" name="total_limit"
                 value="{int(values.get('total_limit') or 0)}" required></label>
-            <label>可用額度<input type="number" min="0" name="available_limit"
+            <label>可用額度<input type="text" class="math-input" name="available_limit"
                 value="{int(values.get('available_limit') or 0)}" required></label>
             <label>結帳日<input type="number" min="1" max="31" name="statement_day"
                 value="{int(values.get('statement_day') or 0) or ''}"></label>
             <label>繳款日<input type="number" min="1" max="31" name="due_day"
                 value="{int(values.get('due_day') or 0) or ''}"></label>
-            <label>本期應繳<input type="number" min="0" name="statement_amount"
+            <label>本期應繳<input type="text" class="math-input" name="statement_amount"
                 value="{int(values.get('statement_amount') or 0)}" required></label>
             <label>狀態
                 <select name="payment_status">
@@ -2049,7 +2148,7 @@ def admin_page(message: str = "") -> str:
                 </select>
             </label>
             <label>金額
-                <input type="number" min="0" name="amount" value="{amount}" required>
+                <input type="text" class="math-input" name="amount" value="{amount}" required>
             </label>
             <button type="submit">儲存帳單狀態</button>
         </form>
@@ -2077,7 +2176,7 @@ def admin_page(message: str = "") -> str:
                 </select>
             </label>
             <label>金額
-                <input type="number" min="0" name="amount" value="{amount}" required>
+                <input type="text" class="math-input" name="amount" value="{amount}" required>
             </label>
             <button type="submit">儲存人物狀態</button>
         </form>
@@ -2102,11 +2201,11 @@ def admin_page(message: str = "") -> str:
         <form method="post" action="/admin/debt/{debt_id}/update" class="debt-form">
             <input name="debt_name" value="{escape(str(debt.get('debt_name') or ''))}" required>
             <input name="debt_type" value="{escape(str(debt.get('debt_type') or '其他'))}" required>
-            <input type="number" min="0" name="original_amount"
+            <input type="text" class="math-input" name="original_amount"
                 value="{int(debt.get('original_amount') or 0)}" required>
-            <input type="number" min="0" name="remaining_amount"
+            <input type="text" class="math-input" name="remaining_amount"
                 value="{int(debt.get('remaining_amount') or 0)}" required>
-            <input type="number" min="0" name="monthly_payment"
+            <input type="text" class="math-input" name="monthly_payment"
                 value="{int(debt.get('monthly_payment') or 0)}" required>
             <button type="submit">儲存</button>
             <button type="submit" class="danger"
@@ -2163,6 +2262,10 @@ def admin_page(message: str = "") -> str:
             width:100%;margin-top:5px}}
             .choice-title {{font-size:18px;font-weight:800}}
             .help-text {{color:#6b7280;margin:-6px 0 16px;line-height:1.7}}
+            .quick-math {{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}}
+            .quick-math button {{padding:5px 8px;background:#eef5ff;color:#007aff;
+            border:1px solid #d8e8ff;font-size:12px}}
+            .math-hint {{display:block;color:#6b7280;margin-top:4px;line-height:1.5}}
             .section-nav {{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 20px}}
             .section-nav a {{text-decoration:none;background:#eef5ff;color:#007aff;
             padding:8px 10px;border-radius:10px;font-weight:700}}
@@ -2240,9 +2343,9 @@ def admin_page(message: str = "") -> str:
                 <form method="post" action="/admin/debt/add" class="debt-form">
                     <input name="debt_name" required placeholder="負債名稱">
                     <input name="debt_type" required placeholder="類型">
-                    <input type="number" min="0" name="original_amount" required placeholder="原始金額">
-                    <input type="number" min="0" name="remaining_amount" required placeholder="剩餘金額">
-                    <input type="number" min="0" name="monthly_payment" value="0" required placeholder="月還款">
+                    <input type="text" class="math-input" name="original_amount" required placeholder="原始金額">
+                    <input type="text" class="math-input" name="remaining_amount" required placeholder="剩餘金額">
+                    <input type="text" class="math-input" name="monthly_payment" value="0" required placeholder="月還款">
                     <button type="submit">新增</button>
                 </form>
                 {debt_rows}
@@ -2261,6 +2364,27 @@ def admin_page(message: str = "") -> str:
                 </div>
             </div>
         </div>
+        <script>
+            document.querySelectorAll(".math-input").forEach((input) => {{
+                const box = document.createElement("div");
+                box.className = "quick-math";
+                ["-1000", "-500", "-100", "+100", "+500", "+1000"].forEach((value) => {{
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.textContent = value;
+                    button.addEventListener("click", () => {{
+                        input.value = value;
+                        input.focus();
+                    }});
+                    box.appendChild(button);
+                }});
+                const hint = document.createElement("small");
+                hint.className = "math-hint";
+                hint.textContent = "可輸入 5000、+500、-100、*2、/2、+500-100";
+                input.insertAdjacentElement("afterend", box);
+                box.insertAdjacentElement("afterend", hint);
+            }});
+        </script>
     </body>
     </html>
     """
@@ -2424,13 +2548,31 @@ def admin_update_bank():
 
     owner = request.form.get("owner", "")
     bank_name = normalize_bank_name(request.form.get("bank_name", ""))
-    balance_text = request.form.get("balance", "").replace(",", "").strip()
+    balance_text = request.form.get("balance", "").strip()
 
-    if owner not in {"個人", "金家"} or not bank_name or not balance_text.isdigit():
+    if owner not in {"個人", "金家"} or not bank_name:
         return redirect(url_for("admin_home", message="銀行資料格式錯誤。"))
 
     try:
-        set_bank_balance(owner, bank_name, int(balance_text))
+        current_balance = int(
+            get_bank_balances(owner)
+            .get(bank_name, {})
+            .get("balance", 0)
+            or 0
+        )
+        new_balance = safe_eval_number_expression(
+            balance_text,
+            current_balance,
+        )
+        set_bank_balance(owner, bank_name, new_balance)
+        write_audit_log(
+            action="update",
+            source="WEB",
+            entity_type="bank_balance",
+            entity_id=f"{owner}:{bank_name}",
+            before_data={"balance": current_balance},
+            after_data={"balance": new_balance, "expression": balance_text},
+        )
     except Exception as error:
         return redirect(url_for("admin_home", message=f"銀行更新失敗：{error}"))
 
@@ -2444,13 +2586,23 @@ def admin_update_credit_card():
 
     card_name = request.form.get("card_name", "")
     try:
-        total_limit = int(request.form.get("total_limit", "0"))
-        available_limit = int(request.form.get("available_limit", "0"))
+        current_card = get_credit_cards().get(card_name, {})
+        total_limit = safe_eval_number_expression(
+            request.form.get("total_limit", "0"),
+            int(current_card.get("total_limit") or 0),
+        )
+        available_limit = safe_eval_number_expression(
+            request.form.get("available_limit", "0"),
+            int(current_card.get("available_limit") or 0),
+        )
+        statement_amount = safe_eval_number_expression(
+            request.form.get("statement_amount", "0"),
+            int(current_card.get("statement_amount") or 0),
+        )
         statement_day_text = request.form.get("statement_day", "").strip()
         due_day_text = request.form.get("due_day", "").strip()
         statement_day = int(statement_day_text) if statement_day_text else 0
         due_day = int(due_day_text) if due_day_text else 0
-        statement_amount = int(request.form.get("statement_amount", "0"))
         payment_status = request.form.get("payment_status", "未繳交")
 
         set_credit_card_values(
@@ -2461,6 +2613,21 @@ def admin_update_credit_card():
             due_day=due_day,
             statement_amount=statement_amount,
             payment_status=payment_status,
+        )
+        write_audit_log(
+            action="update",
+            source="WEB",
+            entity_type="credit_card",
+            entity_id=card_name,
+            before_data=current_card,
+            after_data={
+                "total_limit": total_limit,
+                "available_limit": available_limit,
+                "statement_day": statement_day,
+                "due_day": due_day,
+                "statement_amount": statement_amount,
+                "payment_status": payment_status,
+            },
         )
     except Exception as error:
         return redirect(url_for("admin_home", message=f"信用卡更新失敗：{error}"))
@@ -2478,7 +2645,19 @@ def admin_update_jinjia_status():
         item_type = request.form.get("item_type", "")
         item_name = request.form.get("item_name", "")
         status = request.form.get("status", "未繳交")
-        amount = int(request.form.get("amount", "0"))
+        current_rows = get_jinjia_statuses(month)
+        current_row = next(
+            (
+                row for row in current_rows
+                if row.get("item_type") == item_type
+                and row.get("item_name") == item_name
+            ),
+            {},
+        )
+        amount = safe_eval_number_expression(
+            request.form.get("amount", "0"),
+            int(current_row.get("amount") or 0),
+        )
 
         if item_type not in {"帳單", "人物"}:
             raise ValueError("類型錯誤")
@@ -2494,6 +2673,14 @@ def admin_update_jinjia_status():
             status,
             amount,
         )
+        write_audit_log(
+            action="update",
+            source="WEB",
+            entity_type="jinjia_status",
+            entity_id=f"{month}:{item_type}:{item_name}",
+            before_data=current_row,
+            after_data={"status": status, "amount": amount},
+        )
     except Exception as error:
         return redirect(url_for("admin_home", message=f"金家狀態更新失敗：{error}"))
 
@@ -2506,9 +2693,15 @@ def admin_add_debt():
         return redirect(url_for("admin_home"))
 
     try:
-        original_amount = int(request.form.get("original_amount", "0"))
-        remaining_amount = int(request.form.get("remaining_amount", "0"))
-        monthly_payment = int(request.form.get("monthly_payment", "0"))
+        original_amount = safe_eval_number_expression(
+            request.form.get("original_amount", "0"), 0
+        )
+        remaining_amount = safe_eval_number_expression(
+            request.form.get("remaining_amount", "0"), 0
+        )
+        monthly_payment = safe_eval_number_expression(
+            request.form.get("monthly_payment", "0"), 0
+        )
         if min(original_amount, remaining_amount, monthly_payment) < 0:
             raise ValueError("金額不可小於 0")
 
@@ -2539,9 +2732,31 @@ def admin_update_debt(debt_id: str):
         return redirect(url_for("admin_home"))
 
     try:
-        original_amount = int(request.form.get("original_amount", "0"))
-        remaining_amount = int(request.form.get("remaining_amount", "0"))
-        monthly_payment = int(request.form.get("monthly_payment", "0"))
+        debt_response = (
+            supabase
+            .table("debts")
+            .select("*")
+            .eq("id", debt_id)
+            .limit(1)
+            .execute()
+        )
+        current_debt_rows = debt_response.data or []
+        if not current_debt_rows:
+            raise ValueError("找不到負債資料")
+        current_debt = current_debt_rows[0]
+
+        original_amount = safe_eval_number_expression(
+            request.form.get("original_amount", "0"),
+            int(current_debt.get("original_amount") or 0),
+        )
+        remaining_amount = safe_eval_number_expression(
+            request.form.get("remaining_amount", "0"),
+            int(current_debt.get("remaining_amount") or 0),
+        )
+        monthly_payment = safe_eval_number_expression(
+            request.form.get("monthly_payment", "0"),
+            int(current_debt.get("monthly_payment") or 0),
+        )
         if min(original_amount, remaining_amount, monthly_payment) < 0:
             raise ValueError("金額不可小於 0")
 
@@ -2797,6 +3012,82 @@ def handle_message(event: MessageEvent):
         )
         return
 
+    simple_bank_match = re.match(
+        r"^(玉山|中信|中國信託|渣打|華南|LINE\s*Bank|LINE\s*Pay\s*Money|王道)"
+        r"\s*([+\-*/].+)$",
+        user_text,
+        re.IGNORECASE,
+    )
+    if simple_bank_match:
+        bank_name = normalize_bank_name(simple_bank_match.group(1))
+        expression = simple_bank_match.group(2).strip()
+        owner = "金家" if bank_name == "王道銀行" else "個人"
+        try:
+            current_balance = int(
+                get_bank_balances(owner)
+                .get(bank_name, {})
+                .get("balance", 0)
+                or 0
+            )
+            new_balance = safe_eval_number_expression(expression, current_balance)
+            set_bank_balance(owner, bank_name, new_balance)
+            write_audit_log(
+                action="update",
+                source="LINE",
+                entity_type="bank_balance",
+                entity_id=f"{owner}:{bank_name}",
+                before_data={"balance": current_balance},
+                after_data={"balance": new_balance, "expression": expression},
+            )
+        except Exception as error:
+            reply_line(event, f"銀行餘額調整失敗：{error}")
+            return
+
+        reply_line(
+            event,
+            f"✅ {bank_name}已更新\n"
+            f"原餘額：NT$ {current_balance:,}\n"
+            f"運算：{expression}\n"
+            f"新餘額：NT$ {new_balance:,}",
+        )
+        return
+
+    simple_card_match = re.match(
+        r"^(玉山卡|中信卡|兆豐卡)\s+"
+        r"(結帳日|繳款日|應繳|已繳|未繳)"
+        r"(?:\s+(\d[\d,]*))?\s*$",
+        user_text,
+    )
+    if simple_card_match:
+        card_alias = simple_card_match.group(1)
+        action = simple_card_match.group(2)
+        value_text = simple_card_match.group(3)
+        card_name = {
+            "玉山卡": "玉山信用卡",
+            "中信卡": "中信信用卡",
+            "兆豐卡": "兆豐信用卡",
+        }[card_alias]
+
+        try:
+            if action in {"結帳日", "繳款日", "應繳"} and not value_text:
+                raise ValueError("請輸入數字")
+            if action == "結帳日":
+                set_credit_card_values(card_name, statement_day=int(value_text.replace(",", "")))
+            elif action == "繳款日":
+                set_credit_card_values(card_name, due_day=int(value_text.replace(",", "")))
+            elif action == "應繳":
+                set_credit_card_values(card_name, statement_amount=int(value_text.replace(",", "")))
+            elif action == "已繳":
+                set_credit_card_values(card_name, payment_status="已繳交")
+            elif action == "未繳":
+                set_credit_card_values(card_name, payment_status="未繳交")
+        except Exception as error:
+            reply_line(event, f"信用卡更新失敗：{error}")
+            return
+
+        reply_line(event, f"✅ {card_name}「{action}」已更新")
+        return
+
     if user_text in {"系統檢查", "健康檢查", "系統狀態"}:
         report = run_system_health_checks()
         lines = [
@@ -2829,6 +3120,11 @@ def handle_message(event: MessageEvent):
             event,
             "📘 使用方式\n\n"
             "系統檢查：系統檢查\n"
+            "快速銀行：玉山 +500、王道 -1000\n"
+            "快速信用卡：玉山卡 結帳日 5\n"
+            "快速信用卡：玉山卡 繳款日 20\n"
+            "快速信用卡：玉山卡 應繳 12500\n"
+            "快速信用卡：玉山卡 已繳\n"
             "查看上一筆：查看上一筆\n"
             "修改上一筆：修改上一筆 午餐 150\n"
             "修改金額：修改上一筆金額 150\n"
