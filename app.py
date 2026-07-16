@@ -816,22 +816,25 @@ def home():
         for item in debts
     )
 
-    total_assets = personal_current_balance + jinjia_current_balance
-    net_worth = total_assets - total_debt
-
     current_month = datetime.now(TAIPEI).strftime("%Y-%m")
 
     try:
         personal_bank_balances = get_bank_balances("個人")
     except Exception as error:
         print("讀取個人銀行餘額失敗：", error)
-        personal_bank_balances = {bank: 0 for bank in PERSONAL_BANKS}
+        personal_bank_balances = {
+            bank: {"balance": 0, "updated_at": None}
+            for bank in PERSONAL_BANKS
+        }
 
     try:
         jinjia_bank_balances = get_bank_balances("金家")
     except Exception as error:
         print("讀取金家銀行餘額失敗：", error)
-        jinjia_bank_balances = {bank: 0 for bank in JINJIA_BANKS}
+        jinjia_bank_balances = {
+            bank: {"balance": 0, "updated_at": None}
+            for bank in JINJIA_BANKS
+        }
 
     personal_current_balance = sum(
         int(item.get("balance") or 0)
@@ -841,6 +844,9 @@ def home():
         int(item.get("balance") or 0)
         for item in jinjia_bank_balances.values()
     )
+
+    total_assets = personal_current_balance + jinjia_current_balance
+    net_worth = total_assets - total_debt
 
     personal_bank_rows = build_bank_balance_rows(
         personal_bank_balances,
