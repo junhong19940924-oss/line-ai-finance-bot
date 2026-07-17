@@ -35,7 +35,7 @@ configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 TAIPEI = ZoneInfo("Asia/Taipei")
-APP_VERSION = "3.0.0 Project JARVIS"
+APP_VERSION = "4.0.0 Ultimate Alpha"
 
 
 @app.before_request
@@ -3112,7 +3112,7 @@ def smart_summary_api():
 
 
 # ----------------------------
-# Project JARVIS 3.0 - Phase 1
+# AI 財務管家 4.0 Ultimate Alpha
 # ----------------------------
 
 def calculate_jarvis_summary() -> dict[str, Any]:
@@ -3121,7 +3121,7 @@ def calculate_jarvis_summary() -> dict[str, Any]:
         banks = get_bank_balances("個人")
         cash = sum(int(v.get("balance") or 0) for v in banks.values())
     except Exception as error:
-        print("JARVIS bank error:", error)
+        print("4.0 bank error:", error)
         banks, cash = {}, 0
     try:
         cards = get_credit_cards()
@@ -3130,20 +3130,22 @@ def calculate_jarvis_summary() -> dict[str, Any]:
         credit_used = max(total_limit - available, 0)
         credit_ratio = credit_used / total_limit * 100 if total_limit else 0
     except Exception as error:
-        print("JARVIS card error:", error)
-        cards, total_limit, credit_used, credit_ratio = {}, 0, 0, 0
+        print("4.0 card error:", error)
+        cards, total_limit, available, credit_used, credit_ratio = {}, 0, 0, 0, 0
     try:
         rows = supabase.table("debts").select("remaining_amount").execute().data or []
         debt = sum(float(v.get("remaining_amount") or 0) for v in rows)
     except Exception as error:
-        print("JARVIS debt error:", error)
+        print("4.0 debt error:", error)
         debt = 0
+
     budget_total = sum(float(v.get("amount") or 0) for v in smart.get("budgets", []))
     budget_used = sum(float(v.get("spent") or 0) for v in smart.get("budgets", []))
     budget_ratio = budget_used / budget_total * 100 if budget_total else 0
     target = sum(float(v.get("target_amount") or 0) for v in smart.get("goals", []))
     current = sum(float(v.get("current_amount") or 0) for v in smart.get("goals", []))
     goal_ratio = current / target * 100 if target else 0
+
     score = 100
     if smart.get("balance", 0) < 0: score -= 30
     if credit_ratio > 50: score -= 20
@@ -3152,242 +3154,158 @@ def calculate_jarvis_summary() -> dict[str, Any]:
     elif smart.get("saving_rate", 0) < 20: score -= 10
     if debt > cash and debt > 0: score -= 15
     score = max(0, min(100, score))
-    return {**smart, "banks": banks, "cards": cards, "cash": cash, "debt": debt,
-            "net_worth": cash-debt, "credit_used": credit_used, "credit_ratio": credit_ratio,
-            "budget_ratio": budget_ratio, "goal_ratio": goal_ratio, "health_score": score,
-            "risk": "LOW" if score >= 80 else "MEDIUM" if score >= 60 else "HIGH"}
+
+    risk = "低" if score >= 80 else "中" if score >= 60 else "高"
+    return {
+        **smart, "banks": banks, "cards": cards, "cash": cash, "debt": debt,
+        "net_worth": cash - debt, "credit_used": credit_used,
+        "credit_available": available, "credit_total": total_limit,
+        "credit_ratio": credit_ratio, "budget_ratio": budget_ratio,
+        "goal_ratio": goal_ratio, "health_score": score, "risk": risk,
+    }
+
+
+def _v4_money(value: float | int) -> str:
+    return f"{int(value):,}"
+
+
+def _v4_progress(value: float) -> float:
+    return min(max(float(value), 0), 100)
+
+
+def _v4_sparkline(values: list[float]) -> str:
+    if not values:
+        values = [0, 0, 0, 0, 0, 0]
+    maximum = max(max(values), 1)
+    width, height = 520, 150
+    step = width / max(len(values) - 1, 1)
+    points = []
+    for index, value in enumerate(values):
+        x = index * step
+        y = height - (float(value) / maximum * (height - 24)) - 12
+        points.append(f"{x:.1f},{y:.1f}")
+    return " ".join(points)
 
 
 def jarvis_layout(body: str, active: str, title: str, boot: bool = False) -> str:
     links = [
-        ("garage", "/jarvis", "◉", "主控中心"),
-        ("command", "/jarvis/command", "⌁", "AI 助理"),
-        ("private", "/jarvis/private", "◆", "個人專區"),
-        ("themes", "/jarvis/themes", "✦", "主題設定"),
-        ("classic", "/smart", "▦", "經典介面"),
+        ("garage", "/jarvis", "⌂", "總覽"),
+        ("command", "/jarvis/command", "✦", "AI 分析"),
+        ("private", "/jarvis/private", "◈", "財富報告"),
+        ("themes", "/jarvis/themes", "◐", "外觀"),
+        ("classic", "/smart", "▦", "管理"),
     ]
     nav = "".join(
-        f'<a class="nav {"on" if k == active else ""}" href="{u}">'
-        f'<span>{i}</span><small>{n}</small></a>'
-        for k, u, i, n in links
+        f'<a class="nav {"on" if key == active else ""}" href="{url}"><span>{icon}</span><small>{label}</small></a>'
+        for key, url, icon, label in links
     )
-
     boot_html = '''
     <div id="boot" aria-hidden="true">
-        <div class="boot-ring ring-one"></div>
-        <div class="boot-ring ring-two"></div>
-        <div class="boot-core">
-            <div id="boot-word">J</div>
-            <div class="boot-sub">AI 財務管家</div>
-            <div class="boot-terminal"><span id="boot-line">正在啟動核心系統...</span></div>
-            <div class="boot-track"><i></i></div>
-            <small>超跑風格財務系統</small>
-        </div>
-    </div>
-    ''' if boot else ""
+      <div class="boot-halo"></div><div class="boot-grid"></div>
+      <div class="boot-card"><div class="boot-logo">4.0</div><h1>AI 財務管家</h1>
+      <p id="boot-line">正在啟動財務核心...</p><div class="boot-progress"><i></i></div>
+      <small>ULTIMATE ALPHA · PROJECT PHOENIX</small></div>
+    </div>''' if boot else ""
 
     css = r'''
-    :root{--a:#28d7ff;--a2:#77f1ff;--gold:#d9b56d;--panel:rgba(10,15,23,.82);--line:rgba(116,218,255,.18);--muted:#8190a4;--ok:#65ffb0}
-    *{box-sizing:border-box}html{scroll-behavior:smooth}
-    body{margin:0;min-height:100vh;overflow-x:hidden;color:#f8fbff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft JhengHei",sans-serif;background:radial-gradient(circle at 50% -10%,rgba(29,96,140,.32),transparent 42%),radial-gradient(circle at 90% 10%,rgba(18,215,255,.08),transparent 24%),linear-gradient(145deg,#020304,#07101a 52%,#020304)}
-    body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.18;background-image:linear-gradient(45deg,rgba(255,255,255,.025) 25%,transparent 25%),linear-gradient(-45deg,rgba(255,255,255,.025) 25%,transparent 25%),linear-gradient(45deg,transparent 75%,rgba(255,255,255,.025) 75%),linear-gradient(-45deg,transparent 75%,rgba(255,255,255,.025) 75%);background-size:10px 10px;background-position:0 0,0 5px,5px -5px,-5px 0}
-    body[data-theme=blue]{--a:#3c8cff;--a2:#72d8ff}body[data-theme=red]{--a:#ff3f5f;--a2:#ff996f}body[data-theme=gold]{--a:#d9b56d;--a2:#fff0b6}body[data-theme=lime]{--a:#28d7ff;--a2:#77f1ff}
-    #particle-canvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;opacity:.48;z-index:0}
-    .cursor-glow{position:fixed;width:360px;height:360px;border-radius:50%;pointer-events:none;z-index:0;transform:translate(-50%,-50%);background:radial-gradient(circle,rgba(40,215,255,.10),transparent 67%);filter:blur(5px)}
-    .scanline{position:fixed;left:0;right:0;height:1px;top:-5%;pointer-events:none;z-index:2;background:linear-gradient(90deg,transparent,var(--a),transparent);box-shadow:0 0 18px var(--a);opacity:.28;animation:globalScan 8s linear infinite}
-    .app{position:relative;z-index:1;max-width:1480px;margin:auto;padding:18px}
-    .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;padding:8px 4px;animation:dropIn .8s both}
-    .brand{letter-spacing:.28em;font-weight:900;font-size:14px}.brand em{font-style:normal;color:var(--a);text-shadow:0 0 16px var(--a)}
-    .online{color:var(--ok);border:1px solid rgba(101,255,176,.25);background:rgba(5,20,16,.55);border-radius:99px;padding:8px 13px;font-size:11px;letter-spacing:.12em}
-    .online:before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);margin-right:7px;box-shadow:0 0 12px var(--ok);animation:pulse 1.4s ease-in-out infinite}
-    .layout{display:grid;grid-template-columns:104px 1fr;gap:18px}
-    .side{background:linear-gradient(180deg,rgba(13,19,29,.94),rgba(5,8,12,.88));border:1px solid var(--line);border-radius:26px;padding:10px;height:max-content;position:sticky;top:15px;box-shadow:0 20px 60px rgba(0,0,0,.45);backdrop-filter:blur(18px);animation:slideLeft .8s .08s both}
-    .nav{display:block;text-decoration:none;color:#768397;text-align:center;padding:13px 4px;border-radius:17px;margin:4px;position:relative;transition:.28s}
-    .nav span{font-size:23px;display:block;transition:.28s}.nav small{display:block;font-size:9px;letter-spacing:.1em;margin-top:5px}
-    .nav:after{content:"";position:absolute;left:18%;right:18%;bottom:4px;height:1px;transform:scaleX(0);background:var(--a);box-shadow:0 0 10px var(--a);transition:.28s}
-    .nav.on,.nav:hover{color:var(--a);background:linear-gradient(145deg,rgba(40,215,255,.12),rgba(40,215,255,.025));transform:translateY(-2px)}
-    .nav.on span,.nav:hover span{filter:drop-shadow(0 0 9px var(--a));transform:scale(1.08)}.nav.on:after,.nav:hover:after{transform:scaleX(1)}
-    main{min-width:0}.grid{display:grid;gap:16px}.g2{grid-template-columns:minmax(0,2fr) minmax(290px,1fr)}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
-    .panel{position:relative;overflow:hidden;background:linear-gradient(145deg,rgba(18,27,40,.88),rgba(5,8,13,.93));border:1px solid var(--line);border-radius:26px;padding:22px;box-shadow:0 22px 70px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.025);backdrop-filter:blur(18px);opacity:0;transform:translateY(24px) scale(.985);animation:panelIn .8s cubic-bezier(.16,.84,.3,1) forwards;transition:transform .22s,border-color .22s,box-shadow .22s;transform-style:preserve-3d}
-    .panel:nth-child(2){animation-delay:.08s}.panel:nth-child(3){animation-delay:.16s}.panel:nth-child(4){animation-delay:.24s}
-    .panel:before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(115deg,transparent 25%,rgba(255,255,255,.035) 45%,transparent 64%);transform:translateX(-120%);animation:panelSweep 7s ease-in-out infinite}
-    .panel:after{content:"";position:absolute;left:8%;right:8%;top:0;height:1px;background:linear-gradient(90deg,transparent,var(--a),transparent);opacity:.45;box-shadow:0 0 12px var(--a)}
-    .panel:hover{border-color:rgba(40,215,255,.36);box-shadow:0 26px 85px rgba(0,0,0,.5),0 0 30px rgba(40,215,255,.05)}
-    .hero{min-height:360px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;background:radial-gradient(circle at 50% 38%,rgba(40,215,255,.15),transparent 34%),linear-gradient(145deg,rgba(12,22,34,.94),rgba(3,6,10,.96))}
-    .hero-rings{position:absolute;inset:0;pointer-events:none}.hero-rings i{position:absolute;left:50%;top:47%;border:1px solid rgba(40,215,255,.11);border-radius:50%;transform:translate(-50%,-50%);animation:ringBreath 3s ease-in-out infinite}
-    .hero-rings i:nth-child(1){width:250px;height:250px}.hero-rings i:nth-child(2){width:330px;height:330px;animation-delay:.5s}.hero-rings i:nth-child(3){width:430px;height:430px;animation-delay:1s}
-    .label{color:var(--muted);letter-spacing:.18em;font-size:10px;text-transform:uppercase}
-    .money{position:relative;z-index:1;font-size:clamp(38px,6.5vw,82px);font-weight:900;letter-spacing:-.06em;margin:9px 0 3px;background:linear-gradient(180deg,#fff 20%,#c8f7ff 62%,var(--a));-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 18px rgba(40,215,255,.18))}
-    .sub-value{position:relative;z-index:1;color:var(--a);font-weight:700}.accent{color:var(--a);text-shadow:0 0 14px rgba(40,215,255,.28)}
-    .metric{font-size:29px;font-weight:850;margin-top:7px;letter-spacing:-.03em}.micro{font-size:11px;color:var(--muted)}
-    .bar{height:8px;background:#18202c;border-radius:99px;overflow:hidden;margin-top:13px;box-shadow:inset 0 1px 5px rgba(0,0,0,.8)}
-    .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--a),var(--a2),#fff);box-shadow:0 0 16px var(--a);border-radius:99px;transition:width 1.5s cubic-bezier(.18,.82,.22,1);position:relative}
-    .bar i:after{content:"";position:absolute;right:0;top:-3px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 0 18px var(--a)}
-    .list{display:grid}.row{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:13px 0;border-bottom:1px solid rgba(126,170,205,.11);transition:.22s}.row:hover{padding-left:7px;color:#fff}.row:last-child{border:0}
-    .actions{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:24px;width:100%}
-    .actions a,.theme{position:relative;overflow:hidden;background:linear-gradient(145deg,rgba(18,28,42,.82),rgba(7,11,17,.9));border:1px solid rgba(103,210,255,.16);color:#dbe8f4;border-radius:16px;padding:14px;text-decoration:none;text-align:center;transition:.25s}
-    .actions a:before,.theme:before{content:"";position:absolute;inset:-80% 55% -80% -55%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.12),transparent);transform:rotate(18deg);transition:.55s}
-    .actions a:hover,.theme:hover{border-color:var(--a);color:var(--a);transform:translateY(-4px);box-shadow:0 12px 30px rgba(0,0,0,.35),0 0 18px rgba(40,215,255,.08)}
-    .actions a:hover:before,.theme:hover:before{transform:translateX(230%) rotate(18deg)}
-    .cluster{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:16px}
-    .dial{text-align:center;min-height:215px;display:flex;flex-direction:column;align-items:center;justify-content:center}
-    .dial-svg{width:145px;height:145px;transform:rotate(-90deg)}.dial-track{fill:none;stroke:rgba(123,166,198,.14);stroke-width:8}
-    .dial-progress{fill:none;stroke:url(#dialGradient);stroke-width:8;stroke-linecap:round;stroke-dasharray:339.292;stroke-dashoffset:339.292;filter:drop-shadow(0 0 7px var(--a));transition:stroke-dashoffset 1.7s cubic-bezier(.2,.85,.2,1)}
-    .dial-core{position:absolute;font-size:25px;font-weight:900;text-shadow:0 0 18px var(--a)}.dial-wrap{position:relative;display:grid;place-items:center}
-    .dial-name{margin-top:5px;font-size:10px;letter-spacing:.18em;color:var(--muted)}.dial-note{font-size:11px;margin-top:6px;color:#d8e4ef}
-    .telemetry{height:54px;display:flex;align-items:end;gap:5px;margin-top:18px;opacity:.7}.telemetry i{flex:1;min-width:3px;background:linear-gradient(180deg,var(--a),transparent);border-radius:5px 5px 0 0;transform-origin:bottom;animation:telemetry 1.2s ease-in-out infinite alternate}.telemetry i:nth-child(2n){animation-delay:.18s}.telemetry i:nth-child(3n){animation-delay:.35s}
-    .ai-orb{position:fixed;right:24px;bottom:24px;z-index:40;width:68px;height:68px;border-radius:50%;cursor:pointer;display:grid;place-items:center;background:radial-gradient(circle at 35% 30%,#d9fbff,var(--a) 18%,#07394b 52%,#020607 75%);border:1px solid rgba(255,255,255,.36);box-shadow:0 0 0 8px rgba(40,215,255,.05),0 0 35px rgba(40,215,255,.35);animation:orbFloat 2.8s ease-in-out infinite}
-    .ai-orb:after{content:"";position:absolute;inset:-8px;border-radius:50%;border:1px dashed rgba(119,241,255,.35);animation:spin 9s linear infinite}.ai-orb b{font-size:18px;letter-spacing:.06em}
-    .ai-panel{position:fixed;right:24px;bottom:104px;z-index:39;width:min(360px,calc(100vw - 32px));padding:18px;border-radius:22px;background:rgba(4,10,16,.95);border:1px solid rgba(40,215,255,.28);box-shadow:0 24px 80px rgba(0,0,0,.65),0 0 35px rgba(40,215,255,.08);backdrop-filter:blur(20px);opacity:0;visibility:hidden;transform:translateY(18px) scale(.96);transition:.3s}
-    .ai-panel.show{opacity:1;visibility:visible;transform:none}.ai-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.ai-status{font-size:10px;color:var(--ok);letter-spacing:.12em}.ai-message{line-height:1.75;color:#d8e4ee;font-size:14px}
-    .report{background:radial-gradient(circle at top,#302717,#0b0906 65%);border-color:#5c4928;color:#f4e5bd}.gold{color:var(--gold)}
-    .radar{width:230px;height:230px;border-radius:50%;margin:12px auto;background:repeating-radial-gradient(circle,#253140 0 1px,transparent 2px 36px),linear-gradient(90deg,transparent 49.5%,#273241 50%,transparent 50.5%),linear-gradient(transparent 49.5%,#273241 50%,transparent 50.5%);position:relative;overflow:hidden}
-    .radar:after{content:"";position:absolute;inset:0;border-radius:50%;background:conic-gradient(rgba(40,215,255,.42),transparent 18%);animation:spin 4s linear infinite}
-    .theme{cursor:pointer;font-weight:800}footer{text-align:center;color:#536174;padding:22px;font-size:11px;letter-spacing:.12em}
-    #boot{position:fixed;inset:0;z-index:999;background:radial-gradient(circle,#071522 0,#020304 56%,#000);display:grid;place-items:center;transition:opacity .8s,visibility .8s}#boot.hide{opacity:0;visibility:hidden}
-    .boot-core{text-align:center;position:relative;z-index:2}#boot-word{font-size:clamp(70px,14vw,170px);font-weight:900;letter-spacing:.08em;color:var(--a);text-shadow:0 0 20px var(--a),0 0 70px rgba(40,215,255,.35);min-height:1.2em}
-    .boot-sub{font-size:13px;letter-spacing:.45em;color:#e7fbff;margin-left:.45em}.boot-terminal{margin-top:24px;height:24px;color:var(--a);font-size:11px;letter-spacing:.16em}
-    .boot-track{width:min(560px,78vw);height:3px;background:#12202b;margin:16px auto 12px;overflow:hidden;border-radius:99px}.boot-track i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--a),#fff,var(--a));box-shadow:0 0 16px var(--a);animation:bootLoad 3.1s cubic-bezier(.12,.74,.2,1) forwards}
-    #boot small{color:#5d7182;letter-spacing:.22em}.boot-ring{position:absolute;border-radius:50%;border:1px solid rgba(40,215,255,.14)}.ring-one{width:400px;height:400px;animation:spin 9s linear infinite}.ring-two{width:520px;height:520px;border-style:dashed;animation:spinReverse 14s linear infinite}
-    @keyframes panelIn{to{opacity:1;transform:translateY(0) scale(1)}}@keyframes panelSweep{0%,68%{transform:translateX(-130%)}85%,100%{transform:translateX(135%)}}@keyframes telemetry{from{transform:scaleY(.2);opacity:.35}to{transform:scaleY(1);opacity:1}}@keyframes ringBreath{50%{transform:translate(-50%,-50%) scale(1.06);opacity:.35}}@keyframes pulse{50%{opacity:.35;transform:scale(.8)}}@keyframes orbFloat{50%{transform:translateY(-7px)}}@keyframes spin{to{transform:rotate(360deg)}}@keyframes spinReverse{to{transform:rotate(-360deg)}}@keyframes bootLoad{to{width:100%}}@keyframes globalScan{to{top:105%}}@keyframes dropIn{from{opacity:0;transform:translateY(-15px)}}@keyframes slideLeft{from{opacity:0;transform:translateX(-18px)}}
-    @media(max-width:1050px){.cluster{grid-template-columns:repeat(2,1fr)}}@media(max-width:850px){.app{padding:12px}.layout{grid-template-columns:1fr}.side{position:fixed;z-index:50;left:10px;right:10px;bottom:10px;top:auto;display:flex;justify-content:space-around;padding:6px;border-radius:20px}.nav{flex:1;padding:8px 2px;margin:1px}.nav span{font-size:18px}.nav small{font-size:8px}.g2,.g3{grid-template-columns:1fr}main{padding-bottom:84px}.actions{grid-template-columns:repeat(2,1fr)}.hero{min-height:330px}.ai-orb{right:16px;bottom:92px;width:58px;height:58px}.ai-panel{right:16px;bottom:160px}.cursor-glow{display:none}.ring-two{width:90vw;height:90vw}.ring-one{width:68vw;height:68vw}}@media(max-width:560px){.cluster{grid-template-columns:1fr 1fr;gap:10px}.panel{border-radius:21px;padding:17px}.dial{min-height:190px}.dial-svg{width:128px;height:128px}.money{font-size:44px}.top .label{display:none}}@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important}.panel{opacity:1;transform:none}}
+    :root{--accent:#39e7ff;--accent2:#7b8cff;--positive:#56f0a6;--negative:#ff7285;--warning:#ffc86b;--bg:#05070b;--panel:rgba(14,20,30,.72);--panel2:rgba(8,12,19,.88);--line:rgba(132,220,255,.16);--text:#f5f9ff;--muted:#8e9bae}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;min-height:100vh;color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft JhengHei",sans-serif;background:radial-gradient(circle at 15% 0,rgba(57,231,255,.14),transparent 35%),radial-gradient(circle at 88% 10%,rgba(123,140,255,.14),transparent 30%),linear-gradient(150deg,#030406,#07111b 55%,#030406);overflow-x:hidden}
+    body[data-theme=blue]{--accent:#56a8ff;--accent2:#71e3ff}body[data-theme=red]{--accent:#ff526f;--accent2:#ff9b6a}body[data-theme=gold]{--accent:#e6bd67;--accent2:#fff1b0}body[data-theme=cyan]{--accent:#39e7ff;--accent2:#7b8cff}
+    body:before{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:40px 40px;mask-image:linear-gradient(to bottom,rgba(0,0,0,.9),transparent 78%)}
+    #fx{position:fixed;inset:0;pointer-events:none;z-index:0}.glow{position:fixed;width:420px;height:420px;border-radius:50%;background:radial-gradient(circle,rgba(57,231,255,.10),transparent 68%);transform:translate(-50%,-50%);pointer-events:none;z-index:0}
+    .shell{position:relative;z-index:1;max-width:1500px;margin:auto;padding:18px}.top{display:flex;align-items:center;justify-content:space-between;padding:8px 4px 20px}.brand b{font-size:16px;letter-spacing:.18em}.brand em{color:var(--accent);font-style:normal}.brand small{display:block;margin-top:5px;color:var(--muted);font-size:10px;letter-spacing:.14em}.status{padding:9px 14px;border-radius:99px;border:1px solid rgba(86,240,166,.24);background:rgba(8,35,25,.52);color:var(--positive);font-size:11px}.status:before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--positive);box-shadow:0 0 14px var(--positive);margin-right:7px;animation:pulse 1.5s infinite}
+    .layout{display:grid;grid-template-columns:94px 1fr;gap:18px}.side{position:sticky;top:16px;height:max-content;padding:9px;border-radius:25px;border:1px solid var(--line);background:linear-gradient(180deg,rgba(14,21,32,.92),rgba(5,8,13,.9));backdrop-filter:blur(22px);box-shadow:0 24px 70px rgba(0,0,0,.42)}.nav{display:block;text-decoration:none;text-align:center;color:#718095;padding:13px 4px;margin:4px;border-radius:17px;transition:.25s}.nav span{display:block;font-size:22px}.nav small{display:block;font-size:9px;letter-spacing:.08em;margin-top:5px}.nav:hover,.nav.on{color:var(--accent);background:rgba(57,231,255,.09);transform:translateY(-2px);box-shadow:inset 0 0 0 1px rgba(57,231,255,.09)}
+    main{min-width:0}.grid{display:grid;gap:16px}.g2{grid-template-columns:minmax(0,1.7fr) minmax(300px,1fr)}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.g4{grid-template-columns:repeat(4,minmax(0,1fr))}.panel{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:27px;padding:22px;background:linear-gradient(145deg,var(--panel),var(--panel2));box-shadow:0 25px 80px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.025);backdrop-filter:blur(22px);animation:rise .7s both}.panel:after{content:"";position:absolute;left:8%;right:8%;top:0;height:1px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:.45}.panel:hover{border-color:rgba(57,231,255,.34)}
+    .eyebrow{font-size:10px;letter-spacing:.18em;color:var(--accent);text-transform:uppercase}.title{font-size:clamp(20px,3vw,34px);margin:8px 0 0}.muted{color:var(--muted)}.hero{min-height:350px;display:grid;grid-template-columns:1.4fr 1fr;align-items:center;padding:34px;background:radial-gradient(circle at 30% 45%,rgba(57,231,255,.14),transparent 36%),linear-gradient(145deg,rgba(14,25,39,.94),rgba(4,7,12,.96))}.hero:before{content:"";position:absolute;width:430px;height:430px;border:1px solid rgba(57,231,255,.12);border-radius:50%;right:-90px;top:-100px;box-shadow:0 0 90px rgba(57,231,255,.08),inset 0 0 55px rgba(57,231,255,.05)}.money{font-size:clamp(38px,6vw,76px);font-weight:850;letter-spacing:-.04em;margin:16px 0 8px;text-shadow:0 0 30px rgba(57,231,255,.16)}.delta{color:var(--positive);font-size:14px}.hero-side{position:relative;z-index:1}.clock{font-size:34px;font-weight:750}.date{margin-top:5px;color:var(--muted)}.quick{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:24px}.quick a{text-decoration:none;color:var(--text);border:1px solid var(--line);border-radius:16px;padding:14px;background:rgba(255,255,255,.025);transition:.2s}.quick a:hover{transform:translateY(-2px);border-color:var(--accent)}
+    .metric{font-size:29px;font-weight:800;margin:12px 0}.positive{color:var(--positive)}.negative{color:var(--negative)}.accent{color:var(--accent)}.bar{height:8px;border-radius:99px;background:rgba(255,255,255,.06);overflow:hidden}.bar i{display:block;height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,var(--accent),var(--accent2));box-shadow:0 0 18px var(--accent);transition:width 1.2s cubic-bezier(.2,.8,.2,1)}
+    .ring{width:122px;height:122px;border-radius:50%;display:grid;place-items:center;margin:auto;background:conic-gradient(var(--accent) calc(var(--p)*1%),rgba(255,255,255,.06) 0);box-shadow:0 0 35px rgba(57,231,255,.12)}.ring:before{content:"";width:92px;height:92px;border-radius:50%;background:#09101a;position:absolute}.ring b,.ring small{position:relative;z-index:1}.ring b{font-size:24px}.ring small{display:block;color:var(--muted);font-size:9px;margin-top:2px}.ring-inner{text-align:center;position:relative;z-index:2}.kpi{text-align:center}.kpi p{margin:14px 0 0;color:var(--muted);font-size:12px}
+    .ai-card{background:linear-gradient(145deg,rgba(25,33,52,.86),rgba(6,9,15,.96))}.ai-head{display:flex;justify-content:space-between;align-items:center}.ai-badge{font-size:10px;color:var(--positive)}.ai-message{font-size:17px;line-height:1.75;margin-top:18px}.ai-message div{padding:11px 0;border-bottom:1px solid rgba(255,255,255,.055)}
+    .list{margin-top:14px}.row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.055)}.row:last-child{border:0}.row span{color:#c6d0df}.row b{white-space:nowrap}.chart{height:190px;margin-top:16px}.chart svg{width:100%;height:100%;overflow:visible}.chart .area{fill:url(#areaGradient);opacity:.28}.chart .line{fill:none;stroke:var(--accent);stroke-width:4;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 8px var(--accent));stroke-dasharray:1200;stroke-dashoffset:1200;animation:draw 1.8s .4s forwards}.chart-grid{stroke:rgba(255,255,255,.05);stroke-width:1}
+    .cat{display:grid;grid-template-columns:110px 1fr auto;align-items:center;gap:12px;padding:11px 0}.cat .bar{height:7px}.theme-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:20px}.theme{border:1px solid var(--line);border-radius:20px;padding:22px 12px;color:var(--text);background:rgba(255,255,255,.025);cursor:pointer;font-weight:700}.theme:hover{transform:translateY(-3px);border-color:var(--accent)}footer{text-align:center;color:#586579;font-size:10px;letter-spacing:.14em;padding:28px 0 80px}
+    #boot{position:fixed;inset:0;z-index:99;display:grid;place-items:center;background:#020305;transition:opacity .65s,visibility .65s}.boot-grid{position:absolute;inset:0;background-image:linear-gradient(rgba(57,231,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(57,231,255,.05) 1px,transparent 1px);background-size:46px 46px;animation:gridMove 6s linear infinite}.boot-halo{position:absolute;width:440px;height:440px;border-radius:50%;border:1px solid rgba(57,231,255,.2);box-shadow:0 0 100px rgba(57,231,255,.14),inset 0 0 80px rgba(57,231,255,.08);animation:spin 8s linear infinite}.boot-card{text-align:center;position:relative}.boot-logo{font-size:70px;font-weight:900;color:var(--accent);text-shadow:0 0 32px var(--accent)}.boot-card h1{letter-spacing:.18em;font-size:18px}.boot-card p{color:var(--muted);font-size:12px}.boot-card small{color:#536174;letter-spacing:.15em}.boot-progress{width:260px;height:4px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden;margin:18px auto}.boot-progress i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));animation:load 2.15s ease forwards}.boot-hide{opacity:0;visibility:hidden}
+    @keyframes rise{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}@keyframes pulse{50%{opacity:.4}}@keyframes draw{to{stroke-dashoffset:0}}@keyframes load{from{width:0}to{width:100%}}@keyframes spin{to{transform:rotate(360deg)}}@keyframes gridMove{to{background-position:46px 46px}}@keyframes float{50%{transform:translateY(-6px)}}
+    @media(max-width:980px){.g4{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:1fr}.g2,.hero{grid-template-columns:1fr}.hero{min-height:auto}.hero-side{margin-top:24px}.theme-grid{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:680px){.shell{padding:12px}.layout{display:block}.side{position:fixed;z-index:20;bottom:10px;top:auto;left:10px;right:10px;display:grid;grid-template-columns:repeat(5,1fr);padding:6px;border-radius:22px}.nav{margin:0;padding:9px 2px}.nav span{font-size:18px}.nav small{font-size:8px}.top{padding:5px 2px 14px}.brand b{font-size:13px}.status{font-size:9px}.panel{border-radius:22px;padding:18px}.hero{padding:24px 18px}.money{font-size:42px}.g4{grid-template-columns:1fr 1fr}.ring{width:105px;height:105px}.ring:before{width:78px;height:78px}.theme-grid{grid-template-columns:1fr 1fr}.cat{grid-template-columns:85px 1fr auto}.glow{display:none}}
+    @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
     '''
-
     script = r'''
     <script>
-    (() => {
-        document.body.dataset.theme = localStorage.getItem("jarvis-theme") || "lime";
-        document.querySelectorAll(".theme[data-theme]").forEach((button) => button.addEventListener("click", () => {
-            document.body.dataset.theme = button.dataset.theme;
-            localStorage.setItem("jarvis-theme", button.dataset.theme);
-        }));
-        const boot=document.getElementById("boot");
-        if(boot){
-            const word=document.getElementById("boot-word"),line=document.getElementById("boot-line");
-            ["J","JA","JAR","JARV","JARVI","JARVIS"].forEach((v,i)=>setTimeout(()=>{if(word)word.textContent=v},150+i*210));
-            ["正在啟動核心系統...","正在連線財務資料庫...","正在校正財務儀表...","正在載入安全模組...","AI 助理已上線"].forEach((v,i)=>setTimeout(()=>{if(line)line.textContent=v},350+i*560));
-            setTimeout(()=>boot.classList.add("hide"),3300);
-        }
-        const fmt=(v,d=0)=>Number(v).toLocaleString("zh-TW",{minimumFractionDigits:d,maximumFractionDigits:d});
-        const animateCount=(n)=>{const t=Number(n.dataset.count||0),d=Number(n.dataset.decimals||0),p=n.dataset.prefix||"",s=n.dataset.suffix||"",start=performance.now();const tick=(now)=>{const q=Math.min((now-start)/1450,1),e=1-Math.pow(1-q,4);n.textContent=p+fmt(t*e,d)+s;if(q<1)requestAnimationFrame(tick)};requestAnimationFrame(tick)};
-        const observer=new IntersectionObserver(entries=>entries.forEach(entry=>{if(!entry.isIntersecting)return;entry.target.querySelectorAll("[data-count]").forEach(n=>{if(!n.dataset.animated){n.dataset.animated="1";animateCount(n)}});entry.target.querySelectorAll(".bar i[data-width]").forEach(b=>requestAnimationFrame(()=>b.style.width=b.dataset.width+"%"));entry.target.querySelectorAll(".dial-progress[data-percent]").forEach(c=>{const p=Math.max(0,Math.min(100,Number(c.dataset.percent||0)));requestAnimationFrame(()=>c.style.strokeDashoffset=String(339.292*(1-p/100)))});observer.unobserve(entry.target)}),{threshold:.18});
-        document.querySelectorAll(".panel").forEach(p=>observer.observe(p));
-        if(matchMedia("(pointer:fine)").matches){
-            const glow=document.querySelector(".cursor-glow");addEventListener("mousemove",e=>{if(glow){glow.style.left=e.clientX+"px";glow.style.top=e.clientY+"px"}});
-            document.querySelectorAll(".tilt").forEach(card=>{card.addEventListener("mousemove",e=>{const r=card.getBoundingClientRect(),rx=((e.clientY-r.top)/r.height-.5)*-4,ry=((e.clientX-r.left)/r.width-.5)*5;card.style.transform=`perspective(900px) rotateX(${rx}deg) rotateY(${ry}deg) translateY(-2px)`});card.addEventListener("mouseleave",()=>card.style.transform="")});
-        }
-        const orb=document.querySelector(".ai-orb"),panel=document.querySelector(".ai-panel");if(orb&&panel)orb.addEventListener("click",()=>panel.classList.toggle("show"));
-        const canvas=document.getElementById("particle-canvas");
-        if(canvas&&!matchMedia("(prefers-reduced-motion:reduce)").matches){
-            const ctx=canvas.getContext("2d");let particles=[];
-            const resize=()=>{canvas.width=innerWidth*devicePixelRatio;canvas.height=innerHeight*devicePixelRatio;canvas.style.width=innerWidth+"px";canvas.style.height=innerHeight+"px";ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);particles=Array.from({length:innerWidth<700?24:56},()=>({x:Math.random()*innerWidth,y:Math.random()*innerHeight,r:Math.random()*1.5+.3,vx:(Math.random()-.5)*.16,vy:-(Math.random()*.18+.04),a:Math.random()*.5+.15}))};
-            resize();addEventListener("resize",resize);
-            const draw=()=>{ctx.clearRect(0,0,innerWidth,innerHeight);const color=getComputedStyle(document.body).getPropertyValue("--a").trim()||"#28d7ff";particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;if(p.y<-10)p.y=innerHeight+10;if(p.x<-10)p.x=innerWidth+10;if(p.x>innerWidth+10)p.x=-10;ctx.globalAlpha=p.a;ctx.fillStyle=color;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill()});ctx.globalAlpha=1;requestAnimationFrame(draw)};draw();
-        }
-    })();
-    </script>
-    '''
-
-    return f'''<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#05070a"><title>{escape(title)}</title><style>{css}</style></head><body><canvas id="particle-canvas"></canvas><div class="cursor-glow"></div><div class="scanline"></div><div class="app"><header class="top"><div><div class="brand">PROJECT <em>JARVIS</em></div><small class="label">{APP_VERSION}</small></div><div class="online">系統正常</div></header><div class="layout"><nav class="side">{nav}</nav><main>{body}<footer>AI 財務管家 · AI 財務管家 · SUPERSPORT EDITION</footer></main></div></div>{boot_html}{script}</body></html>'''
+    const root=document.body;const saved=localStorage.getItem('finance-v4-theme')||'cyan';root.dataset.theme=saved;
+    document.querySelectorAll('.theme').forEach(b=>b.onclick=()=>{root.dataset.theme=b.dataset.theme;localStorage.setItem('finance-v4-theme',b.dataset.theme)});
+    document.querySelectorAll('.bar i[data-width]').forEach((el,i)=>setTimeout(()=>el.style.width=Math.min(100,Math.max(0,Number(el.dataset.width)))+'%',180+i*90));
+    document.querySelectorAll('[data-count]').forEach((el,i)=>{const target=Number(el.dataset.count||0),dec=Number(el.dataset.decimals||0),suffix=el.dataset.suffix||'';const start=performance.now()+i*18,duration=950;function tick(now){const p=Math.min(1,Math.max(0,(now-start)/duration)),e=1-Math.pow(1-p,3),v=target*e;el.textContent=v.toLocaleString('zh-TW',{minimumFractionDigits:dec,maximumFractionDigits:dec})+suffix;if(p<1)requestAnimationFrame(tick)}requestAnimationFrame(tick)});
+    const clock=()=>{const d=new Date();document.querySelectorAll('[data-clock]').forEach(e=>e.textContent=d.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}));document.querySelectorAll('[data-date]').forEach(e=>e.textContent=d.toLocaleDateString('zh-TW',{year:'numeric',month:'long',day:'numeric',weekday:'long'}))};clock();setInterval(clock,1000);
+    const glow=document.querySelector('.glow');addEventListener('pointermove',e=>{if(glow){glow.style.left=e.clientX+'px';glow.style.top=e.clientY+'px'}});
+    const boot=document.getElementById('boot');if(boot){const lines=['正在啟動財務核心...','正在同步銀行資料...','正在分析本月現金流...','AI 財務助理已上線'];let n=0;const line=document.getElementById('boot-line');const timer=setInterval(()=>{n++;if(n<lines.length)line.textContent=lines[n]},480);setTimeout(()=>{clearInterval(timer);boot.classList.add('boot-hide')},2250)}
+    </script>'''
+    return f'''<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#05070b"><title>{escape(title)}</title><style>{css}</style></head><body><canvas id="fx"></canvas><div class="glow"></div><div class="shell"><header class="top"><div class="brand"><b>AI 財務管家 <em>4.0</em></b><small>ULTIMATE ALPHA · PROJECT PHOENIX</small></div><div class="status">系統正常</div></header><div class="layout"><nav class="side">{nav}</nav><main>{body}<footer>AI 財務管家 4.0 · Ultimate Alpha · Version {APP_VERSION}</footer></main></div></div>{boot_html}{script}</body></html>'''
 
 
 @app.route("/jarvis")
 def jarvis_garage():
     s = calculate_jarvis_summary()
-    banks = "".join(
+    categories = list(s.get("categories") or [])[:6]
+    category_values = [float(item[1]) for item in categories] if categories else [0, 0, 0, 0, 0, 0]
+    spark_values = category_values + [float(s.get("income", 0)), float(s.get("expense", 0))]
+    points = _v4_sparkline(spark_values)
+    polygon = f"0,150 {points} 520,150"
+    advice = s.get("advice") or ["本月財務資料已完成同步。"]
+    advice_html = "".join(f'<div>✦ {escape(str(item))}</div>' for item in advice[:3])
+    bank_rows = "".join(
         f'<div class="row"><span>{escape(name)}</span><b>NT$ <span data-count="{int(value.get("balance") or 0)}">0</span></b></div>'
-        for name, value in s["banks"].items()
-    ) or '<span class="label">尚無銀行資料</span>'
+        for name, value in s.get("banks", {}).items()
+    ) or '<p class="muted">尚無銀行資料</p>'
+    total_cat = max(sum(category_values), 1)
+    category_rows = "".join(
+        f'<div class="cat"><span>{escape(str(name))}</span><div class="bar"><i data-width="{_v4_progress(float(value)/total_cat*100):.1f}"></i></div><b>NT$ {_v4_money(value)}</b></div>'
+        for name, value in categories
+    ) or '<p class="muted">本月尚無分類支出</p>'
 
-    cash_ratio = min(max(float(s.get("saving_rate", 0)), 0), 100)
-    credit_ratio = min(max(float(s.get("credit_ratio", 0)), 0), 100)
+    def ring(label: str, value: float, note: str) -> str:
+        safe = _v4_progress(value)
+        return f'''<section class="panel kpi"><div class="ring" style="--p:{safe:.1f}"><div class="ring-inner"><b><span data-count="{safe:.1f}" data-decimals="1" data-suffix="%">0%</span></b><small>{escape(label)}</small></div></div><p>{escape(note)}</p></section>'''
+
     debt_base = max(float(s.get("cash", 0)) + float(s.get("debt", 0)), 1)
-    debt_ratio = min(max(float(s.get("debt", 0)) / debt_base * 100, 0), 100)
-    budget_ratio = min(max(float(s.get("budget_ratio", 0)), 0), 100)
-
-    def dial(label: str, percent: float, note: str) -> str:
-        safe_percent = min(max(float(percent), 0), 100)
-        return f'''
-        <section class="panel dial tilt">
-            <div class="dial-wrap">
-                <svg class="dial-svg" viewBox="0 0 120 120" aria-hidden="true">
-                    <defs><linearGradient id="dialGradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="var(--a)"/><stop offset="62%" stop-color="var(--a2)"/><stop offset="100%" stop-color="#ffffff"/></linearGradient></defs>
-                    <circle class="dial-track" cx="60" cy="60" r="54"/>
-                    <circle class="dial-progress" data-percent="{safe_percent:.2f}" cx="60" cy="60" r="54"/>
-                </svg>
-                <div class="dial-core"><span data-count="{safe_percent:.1f}" data-decimals="1" data-suffix="%">0%</span></div>
-            </div>
-            <div class="dial-name">{escape(label)}</div>
-            <div class="dial-note">{escape(note)}</div>
-        </section>'''
-
-    telemetry = "".join(
-        f'<i style="height:{18 + ((index * 19) % 82)}%;animation-duration:{.7 + (index % 7) * .13:.2f}s"></i>'
-        for index in range(34)
-    )
-    ai_advice = s.get("advice") or ["本月財務狀況已載入，請持續維持穩定現金流。"]
-    ai_message = "<br>".join(escape(item) for item in ai_advice[:3])
-
+    debt_ratio = float(s.get("debt", 0)) / debt_base * 100
     body = f'''
-    <section class="panel hero tilt">
-        <div class="hero-rings"><i></i><i></i><i></i></div>
-        <div class="label">主控中心 · 總淨資產</div>
-        <div class="money">NT$ <span data-count="{int(s["net_worth"])}">0</span></div>
-        <div class="sub-value">本月結餘 {"+" if s["balance"] >= 0 else ""}NT$ <span data-count="{int(s["balance"])}">0</span></div>
-        <div class="actions">
-            <a href="/admin">🏦<br><small>銀行系統</small></a>
-            <a href="/admin">💳<br><small>信用卡</small></a>
-            <a href="/admin">✍️<br><small>快速記帳</small></a>
-            <a href="/jarvis/command">🤖<br><small>AI 分析</small></a>
-        </div>
+    <section class="panel hero">
+      <div><div class="eyebrow">財務作戰中心</div><h1 class="title">你的資產，一眼掌握</h1><div class="money">NT$ <span data-count="{int(s['net_worth'])}">0</span></div><div class="delta">本月結餘 {'+' if s['balance'] >= 0 else ''} NT$ <span data-count="{int(s['balance'])}">0</span></div></div>
+      <div class="hero-side"><div class="clock" data-clock>--:--</div><div class="date" data-date>載入日期中</div><div class="quick"><a href="/admin">＋ 快速記帳</a><a href="/jarvis/command">✦ AI 分析</a><a href="/admin#banks">⌁ 銀行資料</a><a href="/admin#credit-cards">◇ 信用卡</a></div></div>
     </section>
-
-    <div class="cluster">
-        {dial("現金存款", cash_ratio, f'現金 NT$ {int(s["cash"]):,}')}
-        {dial("信用卡使用率", credit_ratio, f'已使用 NT$ {int(s["credit_used"]):,}')}
-        {dial("負債比例", debt_ratio, f'負債 NT$ {int(s["debt"]):,}')}
-        {dial("預算使用率", budget_ratio, "本月預算使用率")}
-    </div>
-
-    <div class="grid g3" style="margin-top:16px">
-        <section class="panel tilt"><div class="label">本月收入</div><div class="metric accent">+ NT$ <span data-count="{int(s["income"])}">0</span></div><div class="telemetry">{telemetry}</div><div class="micro">收入動態 · 即時更新</div></section>
-        <section class="panel tilt"><div class="label">本月支出</div><div class="metric">- NT$ <span data-count="{int(s["expense"])}">0</span></div><div class="bar"><i data-width="{min(max(float(s["expense"]) / max(float(s["income"]), 1) * 100, 0), 100):.1f}"></i></div><div class="micro" style="margin-top:10px">最大支出：{escape(s["top_category"])}</div></section>
-        <section class="panel tilt"><div class="label">財務健康度</div><div class="metric accent"><span data-count="{int(s["health_score"])}">0</span> / 100</div><div class="bar"><i data-width="{int(s["health_score"])}"></i></div><div class="micro" style="margin-top:10px">{escape(s["risk"])} 風險 · AI 財務評分</div></section>
-    </div>
-
+    <div class="grid g4" style="margin-top:16px">{ring('儲蓄率',s.get('saving_rate',0),f"本月結餘 NT$ {_v4_money(s.get('balance',0))}")}{ring('信用卡使用率',s.get('credit_ratio',0),f"已使用 NT$ {_v4_money(s.get('credit_used',0))}")}{ring('負債比例',debt_ratio,f"負債 NT$ {_v4_money(s.get('debt',0))}")}{ring('財務健康度',s.get('health_score',0),f"{s.get('risk','低')}風險")}</div>
     <div class="grid g2" style="margin-top:16px">
-        <section class="panel tilt"><div class="label">銀行資產</div><h3>資金艙狀態</h3><div class="list">{banks}</div></section>
-        <section class="panel tilt"><div class="label">本月財務數據</div><h3>本月動力數據</h3><div class="list"><div class="row"><span>收入</span><b>NT$ <span data-count="{int(s["income"])}">0</span></b></div><div class="row"><span>支出</span><b>NT$ <span data-count="{int(s["expense"])}">0</span></b></div><div class="row"><span>月底預估</span><b>NT$ <span data-count="{int(s["projected_expense"])}">0</span></b></div><div class="row"><span>目標完成度</span><b><span data-count="{float(s["goal_ratio"]):.1f}" data-decimals="1" data-suffix="%">0%</span></b></div></div></section>
+      <section class="panel"><div class="eyebrow">本月現金流</div><h2>收支趨勢</h2><div class="chart"><svg viewBox="0 0 520 170" preserveAspectRatio="none"><defs><linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)"/><stop offset="1" stop-color="transparent"/></linearGradient></defs><path class="chart-grid" d="M0 40H520 M0 85H520 M0 130H520"/><polygon class="area" points="{polygon}"/><polyline class="line" points="{points}"/></svg></div><div class="grid g3"><div><div class="eyebrow">收入</div><div class="metric positive">+ NT$ <span data-count="{int(s['income'])}">0</span></div></div><div><div class="eyebrow">支出</div><div class="metric negative">- NT$ <span data-count="{int(s['expense'])}">0</span></div></div><div><div class="eyebrow">月底預估</div><div class="metric">NT$ <span data-count="{int(s['projected_expense'])}">0</span></div></div></div></section>
+      <section class="panel ai-card"><div class="ai-head"><div><div class="eyebrow">AI 今日摘要</div><h2>財務助理</h2></div><span class="ai-badge">● 已上線</span></div><div class="ai-message">{advice_html}</div><div style="margin-top:18px"><div class="row"><span>健康評分</span><b class="accent">{int(s['health_score'])}/100</b></div><div class="row"><span>目標完成度</span><b>{float(s['goal_ratio']):.1f}%</b></div></div></section>
     </div>
-
-    <div class="ai-panel"><div class="ai-head"><b>JARVIS</b><span class="ai-status">● 上線</span></div><div class="label" style="margin-bottom:8px">AI 財務助理</div><div class="ai-message">{ai_message}</div></div>
-    <button class="ai-orb" type="button" aria-label="開啟 JARVIS AI 助理"><b>J</b></button>
+    <div class="grid g2" style="margin-top:16px"><section class="panel"><div class="eyebrow">支出結構</div><h2>分類分布</h2>{category_rows}</section><section class="panel"><div class="eyebrow">資產配置</div><h2>銀行資產</h2><div class="list">{bank_rows}</div><div class="row"><span>現金總額</span><b class="accent">NT$ <span data-count="{int(s['cash'])}">0</span></b></div></section></div>
     '''
-    return jarvis_layout(body, "garage", "AI 財務管家 3.1 中文旗艦版", request.args.get("boot", "1") == "1")
+    return jarvis_layout(body, "garage", "AI 財務管家 4.0 Ultimate Alpha", request.args.get("boot", "1") == "1")
 
 
 @app.route("/jarvis/command")
 def jarvis_command():
     s = calculate_jarvis_summary()
-    missions=[("維持正現金流",s["balance"]>=0),("信用卡低於30%",s["credit_ratio"]<30),("儲蓄率達20%",s["saving_rate"]>=20),("預算未超支",s["budget_ratio"]<=100)]
-    mission_html="".join(f'<div class="row"><span>{"✓" if ok else "△"} {escape(n)}</span><b class="accent">{"CLEAR" if ok else "ACTIVE"}</b></div>' for n,ok in missions)
-    advice="".join(f'<div class="row"><span>◈ {escape(a)}</span></div>' for a in s["advice"])
-    body=f'''<div class="grid g2"><section class="panel"><h3>THREAT RADAR</h3><div class="radar"></div><div style="text-align:center"><div class="label">DEFENSE SCORE</div><div class="metric accent">{s["health_score"]}/100</div></div></section><section class="panel"><h3>MISSION STATUS</h3><div class="list">{mission_html}</div></section></div><section class="panel" style="margin-top:16px"><h3>AI CORE ANALYSIS</h3><div class="list">{advice}</div></section><div class="grid g3" style="margin-top:16px"><section class="panel"><div class="label">DEBT THREAT</div><div class="metric">NT$ {int(s["debt"]):,}</div></section><section class="panel"><div class="label">預算使用率</div><div class="metric">{s["budget_ratio"]:.1f}%</div></section><section class="panel"><div class="label">信用卡使用率</div><div class="metric">{s["credit_ratio"]:.1f}%</div></section></div>'''
-    return jarvis_layout(body,"command","JARVIS Command Center")
+    missions = [("維持正現金流", s["balance"] >= 0),("信用卡使用率低於 30%", s["credit_ratio"] < 30),("儲蓄率達到 20%", s["saving_rate"] >= 20),("預算尚未超支", s["budget_ratio"] <= 100)]
+    mission_html = "".join(f'<div class="row"><span>{"✓" if ok else "△"} {escape(name)}</span><b class="{ "positive" if ok else "negative"}">{"已達成" if ok else "需注意"}</b></div>' for name, ok in missions)
+    advice_html = "".join(f'<div class="row"><span>✦ {escape(str(item))}</span></div>' for item in s.get("advice", []))
+    body = f'''<div class="grid g2"><section class="panel ai-card"><div class="eyebrow">AI 核心分析</div><h1>財務風險雷達</h1><div class="ring" style="--p:{_v4_progress(s['health_score']):.1f};margin-top:28px"><div class="ring-inner"><b>{int(s['health_score'])}</b><small>健康分數</small></div></div><p class="muted" style="text-align:center">目前判定為「{escape(s['risk'])}風險」</p></section><section class="panel"><div class="eyebrow">本月任務</div><h2>財務目標狀態</h2><div class="list">{mission_html}</div></section></div><section class="panel" style="margin-top:16px"><div class="eyebrow">AI 建議</div><h2>下一步行動</h2><div class="list">{advice_html}</div></section><div class="grid g3" style="margin-top:16px"><section class="panel"><div class="eyebrow">總負債</div><div class="metric negative">NT$ {_v4_money(s['debt'])}</div></section><section class="panel"><div class="eyebrow">預算使用率</div><div class="metric">{s['budget_ratio']:.1f}%</div><div class="bar"><i data-width="{_v4_progress(s['budget_ratio']):.1f}"></i></div></section><section class="panel"><div class="eyebrow">信用卡使用率</div><div class="metric">{s['credit_ratio']:.1f}%</div><div class="bar"><i data-width="{_v4_progress(s['credit_ratio']):.1f}"></i></div></section></div>'''
+    return jarvis_layout(body, "command", "AI 財務分析中心")
 
 
 @app.route("/jarvis/private")
 def jarvis_private():
-    s=calculate_jarvis_summary(); rating="AAA" if s["health_score"]>=90 else "AA" if s["health_score"]>=80 else "A" if s["health_score"]>=70 else "BBB"
-    cats="".join(f'<div class="row"><span>{escape(n)}</span><b>NT$ {int(v):,}</b></div>' for n,v in s["categories"][:6]) or '<span class="label">尚無資料</span>'
-    body=f'''<section class="panel report hero"><div class="label gold">個人財富 REPORT · {escape(s["month"])}</div><div class="money gold">NT$ {int(s["net_worth"]):,}</div><div>NET WORTH</div></section><div class="grid g3" style="margin-top:16px"><section class="panel report"><div class="label">WEALTH RATING</div><div class="metric gold">{rating}</div></section><section class="panel report"><div class="label">SAVINGS RATE</div><div class="metric gold">{s["saving_rate"]:.1f}%</div></section><section class="panel report"><div class="label">MONTHLY BALANCE</div><div class="metric gold">NT$ {int(s["balance"]):,}</div></section></div><div class="grid g2" style="margin-top:16px"><section class="panel report"><h3 class="gold">EXPENDITURE PORTFOLIO</h3>{cats}</section><section class="panel report"><h3 class="gold">EXECUTIVE SUMMARY</h3>{''.join(f'<div class="row"><span>{escape(a)}</span></div>' for a in s["advice"][:4])}</section></div>'''
-    return jarvis_layout(body,"private","JARVIS Private Bank")
+    s = calculate_jarvis_summary()
+    rating = "AAA" if s["health_score"] >= 90 else "AA" if s["health_score"] >= 80 else "A" if s["health_score"] >= 70 else "BBB"
+    cats = "".join(f'<div class="row"><span>{escape(str(name))}</span><b>NT$ {_v4_money(value)}</b></div>' for name, value in (s.get("categories") or [])[:7]) or '<p class="muted">尚無資料</p>'
+    summary = "".join(f'<div class="row"><span>{escape(str(item))}</span></div>' for item in (s.get("advice") or [])[:4])
+    body = f'''<section class="panel hero"><div><div class="eyebrow">私人財富報告 · {escape(str(s['month']))}</div><h1 class="title">淨資產總覽</h1><div class="money">NT$ {_v4_money(s['net_worth'])}</div></div><div class="hero-side"><div class="eyebrow">財富評級</div><div class="money accent">{rating}</div></div></section><div class="grid g3" style="margin-top:16px"><section class="panel"><div class="eyebrow">儲蓄率</div><div class="metric positive">{s['saving_rate']:.1f}%</div></section><section class="panel"><div class="eyebrow">本月結餘</div><div class="metric {'positive' if s['balance']>=0 else 'negative'}">NT$ {_v4_money(s['balance'])}</div></section><section class="panel"><div class="eyebrow">資產負債比</div><div class="metric">{(s['debt']/max(s['cash'],1)*100):.1f}%</div></section></div><div class="grid g2" style="margin-top:16px"><section class="panel"><div class="eyebrow">支出組合</div><h2>主要分類</h2>{cats}</section><section class="panel ai-card"><div class="eyebrow">高階摘要</div><h2>本月財務判讀</h2>{summary}</section></div>'''
+    return jarvis_layout(body, "private", "私人財富報告")
 
 
 @app.route("/jarvis/themes")
 def jarvis_themes():
-    body='''<section class="panel"><h3>THEME GARAGE</h3><p class="label">即時切換主色，設定會保存在這台裝置。</p><div class="grid g3"><button class="theme" data-theme="lime">🏎️ SUPERCAR LIME</button><button class="theme" data-theme="blue">🛰️ COMMAND BLUE</button><button class="theme" data-theme="red">🔥 PERFORMANCE RED</button><button class="theme" data-theme="gold">👑 PRIVATE GOLD</button></div></section><section class="panel" style="margin-top:16px"><h3>PHASE 1 STATUS</h3><div class="list"><div class="row"><span>Garage 跑車首頁</span><b class="accent">上線</b></div><div class="row"><span>Command Center 戰情室</span><b class="accent">上線</b></div><div class="row"><span>Private Bank 黑金報告</span><b class="accent">上線</b></div><div class="row"><span>手機響應式介面</span><b class="accent">上線</b></div></div></section>'''
-    return jarvis_layout(body,"themes","JARVIS Theme Garage")
+    body = '''<section class="panel"><div class="eyebrow">外觀設定</div><h1>選擇你的儀表主題</h1><p class="muted">設定會保存在目前裝置，不會影響資料庫。</p><div class="theme-grid"><button class="theme" data-theme="cyan">◈ 鳳凰青</button><button class="theme" data-theme="blue">◉ 指揮藍</button><button class="theme" data-theme="red">◆ 性能紅</button><button class="theme" data-theme="gold">✦ 尊爵金</button></div></section><section class="panel" style="margin-top:16px"><div class="eyebrow">4.0 Alpha 狀態</div><h2>已完成項目</h2><div class="list"><div class="row"><span>全新財務作戰中心</span><b class="positive">完成</b></div><div class="row"><span>即時日期與時間</span><b class="positive">完成</b></div><div class="row"><span>AI 今日財務摘要</span><b class="positive">完成</b></div><div class="row"><span>動態收支圖表</span><b class="positive">完成</b></div><div class="row"><span>手機底部導覽</span><b class="positive">完成</b></div><div class="row"><span>既有後端與資料表</span><b class="positive">保留</b></div></div></section>'''
+    return jarvis_layout(body, "themes", "4.0 外觀設定")
 
 
 @app.route("/api/jarvis/summary")
