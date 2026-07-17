@@ -7,7 +7,7 @@ from html import escape
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from flask import Flask, abort, redirect, request, session, url_for
+from flask import Flask, abort, jsonify, redirect, request, session, url_for
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
@@ -35,7 +35,7 @@ configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 TAIPEI = ZoneInfo("Asia/Taipei")
-APP_VERSION = "2.0.0 Smart"
+APP_VERSION = "3.0.0 Project JARVIS - Phase 1"
 
 
 # ----------------------------
@@ -3102,6 +3102,99 @@ def admin_smart_recurring():
 def smart_summary_api():
     return jsonify(calculate_smart_summary())
 
+
+# ----------------------------
+# Project JARVIS 3.0 - Phase 1
+# ----------------------------
+
+def calculate_jarvis_summary() -> dict[str, Any]:
+    smart = calculate_smart_summary()
+    try:
+        banks = get_bank_balances("個人")
+        cash = sum(int(v.get("balance") or 0) for v in banks.values())
+    except Exception as error:
+        print("JARVIS bank error:", error)
+        banks, cash = {}, 0
+    try:
+        cards = get_credit_cards()
+        total_limit = sum(int(v.get("total_limit") or 0) for v in cards.values())
+        available = sum(int(v.get("available_limit") or 0) for v in cards.values())
+        credit_used = max(total_limit - available, 0)
+        credit_ratio = credit_used / total_limit * 100 if total_limit else 0
+    except Exception as error:
+        print("JARVIS card error:", error)
+        cards, total_limit, credit_used, credit_ratio = {}, 0, 0, 0
+    try:
+        rows = supabase.table("debts").select("remaining_amount").execute().data or []
+        debt = sum(float(v.get("remaining_amount") or 0) for v in rows)
+    except Exception as error:
+        print("JARVIS debt error:", error)
+        debt = 0
+    budget_total = sum(float(v.get("amount") or 0) for v in smart.get("budgets", []))
+    budget_used = sum(float(v.get("spent") or 0) for v in smart.get("budgets", []))
+    budget_ratio = budget_used / budget_total * 100 if budget_total else 0
+    target = sum(float(v.get("target_amount") or 0) for v in smart.get("goals", []))
+    current = sum(float(v.get("current_amount") or 0) for v in smart.get("goals", []))
+    goal_ratio = current / target * 100 if target else 0
+    score = 100
+    if smart.get("balance", 0) < 0: score -= 30
+    if credit_ratio > 50: score -= 20
+    elif credit_ratio > 30: score -= 10
+    if smart.get("saving_rate", 0) < 10: score -= 20
+    elif smart.get("saving_rate", 0) < 20: score -= 10
+    if debt > cash and debt > 0: score -= 15
+    score = max(0, min(100, score))
+    return {**smart, "banks": banks, "cards": cards, "cash": cash, "debt": debt,
+            "net_worth": cash-debt, "credit_used": credit_used, "credit_ratio": credit_ratio,
+            "budget_ratio": budget_ratio, "goal_ratio": goal_ratio, "health_score": score,
+            "risk": "LOW" if score >= 80 else "MEDIUM" if score >= 60 else "HIGH"}
+
+
+def jarvis_layout(body: str, active: str, title: str, boot: bool = False) -> str:
+    links = [("garage","/jarvis","🏎️","Garage"),("command","/jarvis/command","🎖️","Command"),("private","/jarvis/private","👑","Private"),("themes","/jarvis/themes","🎨","Themes"),("classic","/smart","📊","Classic")]
+    nav = "".join(f'<a class="nav {"on" if k==active else ""}" href="{u}">{i}<small>{n}</small></a>' for k,u,i,n in links)
+    boot_html = '<div id="boot"><b>PROJECT JARVIS</b><span>AI FINANCE COMMAND CENTER</span><i></i><small>INITIALIZING...</small></div>' if boot else ''
+    css = '''
+    :root{--a:#d7ff3f;--b:#40dfff;--g:#d9b56d;--m:#8b95a5}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at top,#253047,#0a0d13 42%,#040507);color:#f7f9fc;font-family:-apple-system,"Microsoft JhengHei",sans-serif}body[data-theme=blue]{--a:#45baff;--b:#78e8ff}body[data-theme=red]{--a:#ff4f62;--b:#ff9c66}body[data-theme=gold]{--a:#d9b56d;--b:#f7e1a8}.app{max-width:1400px;margin:auto;padding:18px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.brand{letter-spacing:.22em;font-weight:900}.online{color:var(--a);border:1px solid #2c3543;border-radius:99px;padding:8px 12px;font-size:12px}.layout{display:grid;grid-template-columns:105px 1fr;gap:18px}.side{background:#0c1119d9;border:1px solid #222b38;border-radius:24px;padding:10px;height:max-content;position:sticky;top:15px}.nav{display:block;text-decoration:none;color:#8791a2;text-align:center;padding:12px 4px;border-radius:16px;font-size:22px;margin:4px}.nav small{display:block;font-size:10px;margin-top:5px}.nav.on,.nav:hover{background:#192230;color:var(--a)}.grid{display:grid;gap:16px}.g2{grid-template-columns:2fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.panel{background:linear-gradient(145deg,#151b25f5,#090c12f5);border:1px solid #252f3e;border-radius:24px;padding:22px;box-shadow:0 18px 55px #0007}.hero{text-align:center;padding:36px}.label{color:var(--m);letter-spacing:.16em;font-size:11px}.money{font-size:clamp(35px,6vw,68px);font-weight:900;letter-spacing:-.05em;margin:10px}.accent{color:var(--a)}.metric{font-size:28px;font-weight:850;margin-top:7px}.bar{height:8px;background:#242c38;border-radius:99px;overflow:hidden;margin-top:12px}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--b),var(--a));box-shadow:0 0 15px var(--a)}.list{display:grid}.row{display:flex;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px solid #202936}.row:last-child{border:0}.actions{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:20px}.actions a,.theme{background:#121924;border:1px solid #2a3546;color:#dbe1ea;border-radius:15px;padding:14px;text-decoration:none;text-align:center}.actions a:hover,.theme:hover{border-color:var(--a);color:var(--a)}.gauge{font-size:52px;font-weight:900;text-align:center;margin:25px 0 5px;text-shadow:0 0 25px var(--a)}.radar{width:230px;height:230px;border-radius:50%;margin:12px auto;background:repeating-radial-gradient(circle,#253140 0 1px,transparent 2px 36px),linear-gradient(90deg,transparent 49.5%,#273241 50%,transparent 50.5%),linear-gradient(transparent 49.5%,#273241 50%,transparent 50.5%);position:relative}.radar:after{content:"";position:absolute;inset:0;border-radius:50%;background:conic-gradient(#40dfff66,transparent 18%);animation:scan 4s linear infinite}@keyframes scan{to{transform:rotate(360deg)}}.report{background:radial-gradient(circle at top,#302717,#0b0906 65%);border-color:#5c4928;color:#f4e5bd}.gold{color:var(--g)}#boot{position:fixed;inset:0;z-index:99;background:#030507;display:flex;flex-direction:column;justify-content:center;align-items:center;transition:.7s}#boot b{font-size:clamp(28px,6vw,64px);letter-spacing:.2em;color:var(--a);text-shadow:0 0 25px var(--a)}#boot span,#boot small{color:#7f8998;letter-spacing:.2em;margin-top:10px}#boot i{width:min(520px,78vw);height:4px;background:var(--a);margin-top:30px;animation:load 1.8s ease}@keyframes load{from{width:0}}#boot.hide{opacity:0;visibility:hidden}.theme{cursor:pointer;font-weight:800}footer{text-align:center;color:#596274;padding:22px}@media(max-width:850px){.layout{grid-template-columns:1fr}.side{position:fixed;z-index:20;left:10px;right:10px;bottom:10px;top:auto;display:flex;justify-content:space-around}.nav{flex:1;padding:8px 2px;font-size:18px}.g2,.g3{grid-template-columns:1fr}main{padding-bottom:90px}.actions{grid-template-columns:repeat(2,1fr)}}
+    '''
+    return f'''<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{escape(title)}</title><style>{css}</style></head><body><div class="app"><header class="top"><div><div class="brand">PROJECT JARVIS</div><small class="label">{APP_VERSION}</small></div><div class="online">● SYSTEM ONLINE</div></header><div class="layout"><nav class="side">{nav}</nav><main>{body}<footer>AI 財務管家 · Project JARVIS</footer></main></div></div>{boot_html}<script>document.body.dataset.theme=localStorage.getItem('jarvis-theme')||'lime';document.querySelectorAll('[data-theme]').forEach(x=>x.onclick=()=>{{document.body.dataset.theme=x.dataset.theme;localStorage.setItem('jarvis-theme',x.dataset.theme)}});const b=document.getElementById('boot');if(b)setTimeout(()=>b.classList.add('hide'),2100)</script></body></html>'''
+
+
+@app.route("/jarvis")
+def jarvis_garage():
+    s = calculate_jarvis_summary()
+    banks = "".join(f'<div class="row"><span>{escape(n)}</span><b>NT$ {int(v.get("balance") or 0):,}</b></div>' for n,v in s["banks"].items()) or '<span class="label">尚無銀行資料</span>'
+    body = f'''<div class="grid g2"><section class="panel hero"><div class="label">GARAGE MODE · NET WORTH</div><div class="money">NT$ {int(s["net_worth"]):,}</div><div class="accent">本月結餘 {"+" if s["balance"]>=0 else ""}NT$ {int(s["balance"]):,}</div><div class="actions"><a href="/admin">🏦<br>銀行</a><a href="/admin">💳<br>信用卡</a><a href="/admin">📝<br>記帳</a><a href="/jarvis/command">🤖<br>AI 分析</a></div></section><section class="panel"><div class="label">FINANCIAL HEALTH</div><div class="gauge accent">{s["health_score"]}</div><div style="text-align:center">{s["risk"]} RISK</div></section></div><div class="grid g3" style="margin-top:16px"><section class="panel"><div class="label">CASH RESERVE</div><div class="metric">NT$ {int(s["cash"]):,}</div><div class="bar"><i style="width:{min(max(s["saving_rate"],0),100):.1f}%"></i></div><small>儲蓄率 {s["saving_rate"]:.1f}%</small></section><section class="panel"><div class="label">CREDIT USAGE</div><div class="metric">{s["credit_ratio"]:.1f}%</div><div class="bar"><i style="width:{min(s["credit_ratio"],100):.1f}%"></i></div><small>已使用 NT$ {int(s["credit_used"]):,}</small></section><section class="panel"><div class="label">GOAL PROGRESS</div><div class="metric">{s["goal_ratio"]:.1f}%</div><div class="bar"><i style="width:{min(s["goal_ratio"],100):.1f}%"></i></div><small>綜合目標進度</small></section></div><div class="grid g2" style="margin-top:16px"><section class="panel"><h3>BANK TELEMETRY</h3><div class="list">{banks}</div></section><section class="panel"><h3>MONTHLY ENGINE</h3><div class="list"><div class="row"><span>收入</span><b>NT$ {int(s["income"]):,}</b></div><div class="row"><span>支出</span><b>NT$ {int(s["expense"]):,}</b></div><div class="row"><span>月底預估</span><b>NT$ {int(s["projected_expense"]):,}</b></div><div class="row"><span>最大支出</span><b>{escape(s["top_category"])}</b></div></div></section></div>'''
+    return jarvis_layout(body, "garage", "JARVIS Garage", request.args.get("boot","1")=="1")
+
+
+@app.route("/jarvis/command")
+def jarvis_command():
+    s = calculate_jarvis_summary()
+    missions=[("維持正現金流",s["balance"]>=0),("信用卡低於30%",s["credit_ratio"]<30),("儲蓄率達20%",s["saving_rate"]>=20),("預算未超支",s["budget_ratio"]<=100)]
+    mission_html="".join(f'<div class="row"><span>{"✓" if ok else "△"} {escape(n)}</span><b class="accent">{"CLEAR" if ok else "ACTIVE"}</b></div>' for n,ok in missions)
+    advice="".join(f'<div class="row"><span>◈ {escape(a)}</span></div>' for a in s["advice"])
+    body=f'''<div class="grid g2"><section class="panel"><h3>THREAT RADAR</h3><div class="radar"></div><div style="text-align:center"><div class="label">DEFENSE SCORE</div><div class="metric accent">{s["health_score"]}/100</div></div></section><section class="panel"><h3>MISSION STATUS</h3><div class="list">{mission_html}</div></section></div><section class="panel" style="margin-top:16px"><h3>AI CORE ANALYSIS</h3><div class="list">{advice}</div></section><div class="grid g3" style="margin-top:16px"><section class="panel"><div class="label">DEBT THREAT</div><div class="metric">NT$ {int(s["debt"]):,}</div></section><section class="panel"><div class="label">BUDGET LOAD</div><div class="metric">{s["budget_ratio"]:.1f}%</div></section><section class="panel"><div class="label">CREDIT LOAD</div><div class="metric">{s["credit_ratio"]:.1f}%</div></section></div>'''
+    return jarvis_layout(body,"command","JARVIS Command Center")
+
+
+@app.route("/jarvis/private")
+def jarvis_private():
+    s=calculate_jarvis_summary(); rating="AAA" if s["health_score"]>=90 else "AA" if s["health_score"]>=80 else "A" if s["health_score"]>=70 else "BBB"
+    cats="".join(f'<div class="row"><span>{escape(n)}</span><b>NT$ {int(v):,}</b></div>' for n,v in s["categories"][:6]) or '<span class="label">尚無資料</span>'
+    body=f'''<section class="panel report hero"><div class="label gold">PRIVATE WEALTH REPORT · {escape(s["month"])}</div><div class="money gold">NT$ {int(s["net_worth"]):,}</div><div>NET WORTH</div></section><div class="grid g3" style="margin-top:16px"><section class="panel report"><div class="label">WEALTH RATING</div><div class="metric gold">{rating}</div></section><section class="panel report"><div class="label">SAVINGS RATE</div><div class="metric gold">{s["saving_rate"]:.1f}%</div></section><section class="panel report"><div class="label">MONTHLY BALANCE</div><div class="metric gold">NT$ {int(s["balance"]):,}</div></section></div><div class="grid g2" style="margin-top:16px"><section class="panel report"><h3 class="gold">EXPENDITURE PORTFOLIO</h3>{cats}</section><section class="panel report"><h3 class="gold">EXECUTIVE SUMMARY</h3>{''.join(f'<div class="row"><span>{escape(a)}</span></div>' for a in s["advice"][:4])}</section></div>'''
+    return jarvis_layout(body,"private","JARVIS Private Bank")
+
+
+@app.route("/jarvis/themes")
+def jarvis_themes():
+    body='''<section class="panel"><h3>THEME GARAGE</h3><p class="label">即時切換主色，設定會保存在這台裝置。</p><div class="grid g3"><button class="theme" data-theme="lime">🏎️ SUPERCAR LIME</button><button class="theme" data-theme="blue">🛰️ COMMAND BLUE</button><button class="theme" data-theme="red">🔥 PERFORMANCE RED</button><button class="theme" data-theme="gold">👑 PRIVATE GOLD</button></div></section><section class="panel" style="margin-top:16px"><h3>PHASE 1 STATUS</h3><div class="list"><div class="row"><span>Garage 跑車首頁</span><b class="accent">ONLINE</b></div><div class="row"><span>Command Center 戰情室</span><b class="accent">ONLINE</b></div><div class="row"><span>Private Bank 黑金報告</span><b class="accent">ONLINE</b></div><div class="row"><span>手機響應式介面</span><b class="accent">ONLINE</b></div></div></section>'''
+    return jarvis_layout(body,"themes","JARVIS Theme Garage")
+
+
+@app.route("/api/jarvis/summary")
+def jarvis_summary_api():
+    return jsonify(calculate_jarvis_summary())
 
 @app.route("/health", methods=["GET"])
 def health():
