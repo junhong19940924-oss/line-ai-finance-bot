@@ -35,7 +35,7 @@ configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 TAIPEI = ZoneInfo("Asia/Taipei")
-APP_VERSION = "4.6.1 金"
+APP_VERSION = "4.8 金 旗艦版"
 
 
 @app.before_request
@@ -3227,29 +3227,164 @@ def jarvis_layout(body: str, active: str, title: str, boot: bool = False) -> str
     @keyframes meterWake{from{stroke-dashoffset:478;filter:drop-shadow(0 0 0 transparent)}to{filter:drop-shadow(0 0 10px rgba(54,214,255,.42))}}
     @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}.reveal,.chart-dot{opacity:1!important;transform:none!important}.line{stroke-dashoffset:0!important}.boot{display:none!important}}
     '''
+
+    css += r'''
+    /* 4.8 金旗艦版：豪華超跑座艙與低亮度戰旗 */
+    :root{--champagne:#d9ad54;--champagne-soft:#f1d58c;--carbon:#06090e;--deep-red:#8f211f}
+    body{background:radial-gradient(circle at 72% 2%,rgba(116,42,28,.10),transparent 30%),radial-gradient(circle at 91% 24%,rgba(112,63,182,.10),transparent 32%),linear-gradient(145deg,#020407,#070b10 58%,#020406)}
+    body:before{opacity:.10;background-size:10px 10px}
+    .sidebar{border-right-color:rgba(217,173,84,.25);background:linear-gradient(180deg,rgba(3,6,10,.98),rgba(5,9,14,.96))}
+    .brand-block{justify-content:center;padding:0 0 22px;min-height:205px}.brand-text{display:none}
+    .brand-flag{width:174px;height:178px;filter:drop-shadow(0 0 5px rgba(217,173,84,.26));animation:flagBreathe48 3.8s ease-in-out infinite,flagWave48 5.8s ease-in-out infinite;transform-origin:18% 18%}
+    .brand-flag:before{left:18px;top:0;width:7px;height:174px;background:linear-gradient(90deg,#5e390f,#e0b45e 36%,#fff0b4 52%,#9a631d 72%,#3c2208);box-shadow:0 0 5px rgba(217,173,84,.32)}
+    .brand-flag:after{left:25px;top:24px;width:139px;height:112px;clip-path:polygon(0 0,94% 7%,100% 46%,92% 93%,0 100%);background:linear-gradient(120deg,#7b521d 0%,#d4aa58 22%,#f0d28a 48%,#b48135 72%,#654014 100%);border:1px solid rgba(241,213,140,.75);box-shadow:inset 0 0 22px rgba(255,245,198,.18),inset -20px 0 26px rgba(69,31,8,.20),0 0 8px rgba(217,173,84,.22)}
+    .brand-flag span{margin-left:24px;margin-top:-15px;font-size:69px;color:#070707;-webkit-text-stroke:0;text-shadow:0 1px 0 rgba(255,255,255,.10)}
+    .brand-flag:hover{filter:drop-shadow(0 0 8px rgba(217,173,84,.34))}
+    .nav-item.active{border-color:rgba(217,173,84,.45);box-shadow:inset 0 0 22px rgba(143,33,31,.12),0 0 10px rgba(217,173,84,.10)}
+    .nav-item.active:before{background:linear-gradient(90deg,rgba(143,33,31,.28),rgba(217,173,84,.08),transparent)}
+    .nav-item.active:after{background:#d66a43;box-shadow:0 0 9px rgba(214,106,67,.55)}
+    .topbar{border-bottom-color:rgba(217,173,84,.20)}.top-title h1{color:var(--champagne-soft)} main{max-width:1780px}
+    .panel{border-color:rgba(217,173,84,.25);border-radius:13px;background:linear-gradient(145deg,rgba(5,9,14,.96),rgba(7,12,19,.92));box-shadow:0 18px 45px rgba(0,0,0,.48),inset 0 0 0 1px rgba(255,255,255,.018)}
+    .panel:before{content:"";position:absolute;inset:5px;border:1px solid rgba(217,173,84,.09);pointer-events:none;z-index:-1}.panel:after{opacity:.38;animation-duration:14s}
+    .hero-card{min-height:350px;grid-template-columns:minmax(0,1fr) 370px;background:radial-gradient(circle at 77% 50%,rgba(24,133,229,.10),transparent 30%),radial-gradient(circle at 91% 56%,rgba(164,39,27,.13),transparent 24%),linear-gradient(145deg,rgba(4,8,13,.98),rgba(6,10,16,.95))}
+    .eyebrow,.section-title h3,.hero-card h2{color:var(--champagne-soft)}.hero-money{font-size:clamp(45px,5vw,76px);text-shadow:none}.currency{color:#e9edf1}
+    .speed-cluster{width:315px;height:315px}.speed-core{width:165px;height:165px;border-color:rgba(217,173,84,.32);box-shadow:inset 0 0 38px rgba(217,173,84,.06),0 0 20px rgba(30,143,230,.08)}
+    .speed-core:after{content:"x1000 RPM";position:absolute;bottom:20px;right:-7px;color:#68717b;font-size:9px;letter-spacing:1px}
+    .car-silhouette{position:absolute;right:245px;bottom:44px;width:280px;height:74px;opacity:.93;filter:drop-shadow(0 12px 12px rgba(0,0,0,.8))}
+    .car-silhouette:before{content:"";position:absolute;inset:14px 8px 17px;background:linear-gradient(160deg,#29313a 0%,#050608 38%,#151b21 66%,#020303);clip-path:polygon(3% 70%,15% 54%,30% 48%,43% 20%,64% 18%,78% 47%,95% 56%,100% 74%,90% 83%,13% 84%);border-bottom:2px solid rgba(217,173,84,.38)}
+    .car-silhouette:after{content:"";position:absolute;right:20px;top:39px;width:32px;height:5px;border-radius:50%;background:#db3f27;box-shadow:0 0 9px #c72f22,0 0 20px rgba(199,47,34,.55);animation:tailPulse48 3.6s ease-in-out infinite}
+    .ai-card{background:radial-gradient(circle at 92% 85%,rgba(127,74,232,.13),transparent 31%),linear-gradient(145deg,rgba(8,9,18,.98),rgba(6,8,14,.96))}
+    .ai-orb{width:auto;height:auto;border-radius:0;background:none;box-shadow:none;font-size:30px;color:#cdb9ff;text-shadow:0 0 10px rgba(134,91,226,.42);animation:none}
+    .stats-grid{grid-template-columns:repeat(5,minmax(0,1fr))}.content-grid{grid-template-columns:1fr 1.15fr 1.05fr}.asset-card,.recent-card{min-height:285px}
+    .donut-wrap{display:flex;align-items:center;gap:24px;min-height:205px}.donut{width:170px;aspect-ratio:1;border-radius:50%;background:conic-gradient(#238de5 0 45%,#7555d8 45% 75%,#ec9f30 75% 86%,#38b976 86% 94%,#d9553d 94%);display:grid;place-items:center}.donut:after{content:"";width:105px;aspect-ratio:1;border-radius:50%;background:#070b10;border:1px solid rgba(217,173,84,.15)}.donut-label{position:absolute;text-align:center;z-index:2}.donut-label small{display:block;color:var(--muted)}.donut-label b{font-size:13px}
+    .asset-list{flex:1;display:grid;gap:9px}.asset-item{display:grid;grid-template-columns:10px 1fr auto;gap:9px;align-items:center;font-size:12px}.asset-item i{width:8px;height:8px;border-radius:50%;background:var(--c)}.asset-item small{display:block;color:var(--muted)}
+    .recent-row{display:grid;grid-template-columns:38px minmax(0,1fr) auto;gap:11px;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.055)}.recent-icon{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;background:color-mix(in srgb,var(--rc) 13%,transparent);color:var(--rc);border:1px solid color-mix(in srgb,var(--rc) 26%,transparent)}.recent-row span{font-size:12px}.recent-row small{display:block;color:var(--muted)}.recent-row b{font-size:13px;color:var(--rc)}
+    .quick-panel{margin-top:18px;padding:18px}.quick-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:10px}.quick-action{display:grid;place-items:center;gap:8px;padding:11px 6px;border:1px solid rgba(217,173,84,.13);border-radius:10px;background:rgba(255,255,255,.018);font-size:11px;color:#b8c1cb;transition:.25s}.quick-action strong{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;font-size:20px;color:var(--qa);border:1px solid color-mix(in srgb,var(--qa) 35%,transparent);background:color-mix(in srgb,var(--qa) 8%,transparent)}.quick-action:hover{transform:translateY(-2px);color:#fff}
+    @keyframes flagBreathe48{0%,100%{filter:drop-shadow(0 0 4px rgba(217,173,84,.20))}50%{filter:drop-shadow(0 0 8px rgba(217,173,84,.34))}}@keyframes flagWave48{0%,100%{transform:perspective(400px) rotateY(0deg) rotateZ(-.3deg)}50%{transform:perspective(400px) rotateY(-2deg) rotateZ(.5deg)}}@keyframes tailPulse48{0%,100%{opacity:.58}50%{opacity:1}}
+    @media(max-width:1250px){.stats-grid{grid-template-columns:repeat(3,1fr)}.content-grid{grid-template-columns:1fr 1fr}.recent-card{grid-column:1/-1}.quick-grid{grid-template-columns:repeat(4,1fr)}.car-silhouette{display:none}}
+    @media(max-width:760px){.brand-block{min-height:auto}.brand-flag{width:55px;height:54px}.brand-flag:before{left:5px;height:53px;width:4px}.brand-flag:after{left:9px;top:7px;width:43px;height:37px}.brand-flag span{font-size:24px;margin:0 0 5px 5px}.hero-card{grid-template-columns:1fr;min-height:auto}.speed-cluster{width:210px;height:210px;margin:auto}.stats-grid{grid-template-columns:1fr 1fr}.content-grid{grid-template-columns:1fr}.recent-card{grid-column:auto}.quick-grid{grid-template-columns:repeat(4,1fr)}.donut-wrap{flex-direction:column}.gauge-grid{grid-template-columns:1fr 1fr}}
+    @media(max-width:420px){.stats-grid,.gauge-grid{grid-template-columns:1fr}.quick-grid{grid-template-columns:repeat(3,1fr)}}
+    @media(prefers-reduced-motion:reduce){.brand-flag,.car-silhouette:after{animation:none!important}.reveal{animation:none!important;opacity:1!important;transform:none!important}}
+    '''
     script = r'''<script>(()=>{document.documentElement.classList.add('dashboard-js');document.querySelectorAll('.reveal').forEach((e,i)=>{e.style.setProperty('--delay',(i*.055)+'s');e.style.opacity='1';e.style.visibility='visible'});document.querySelectorAll('[data-count]').forEach((e,i)=>{const t=Number(e.dataset.count||0),d=Number(e.dataset.decimals||0),s=e.dataset.suffix||'',st=performance.now()+i*16;function f(n){const p=Math.min(1,Math.max(0,(n-st)/1050)),v=t*(1-Math.pow(1-p,3));e.textContent=v.toLocaleString('zh-TW',{minimumFractionDigits:d,maximumFractionDigits:d})+s;if(p<1)requestAnimationFrame(f)}requestAnimationFrame(f)});setTimeout(()=>document.querySelectorAll('[data-width]').forEach(e=>e.style.width=Math.min(100,Math.max(0,Number(e.dataset.width||0)))+'%'),250);if(!document.querySelector('[data-dashboard-complete]')&&location.pathname==='/jarvis')console.warn('Dashboard completeness marker missing');const c=()=>{const d=new Date();document.querySelectorAll('[data-clock]').forEach(e=>e.textContent=d.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}));document.querySelectorAll('[data-date]').forEach(e=>e.textContent=d.toLocaleDateString('zh-TW',{year:'numeric',month:'long',day:'numeric',weekday:'long'}))};c();setInterval(c,1000);const b=document.getElementById('boot');if(b){const a=['正在點火...','動力核心已啟動','財務資料鏈路完成','數位儀表校正完成','AI 引擎已上線'];let n=0,l=document.getElementById('boot-line'),x=setInterval(()=>{n++;if(n<a.length)l.textContent=a[n]},455);setTimeout(()=>{clearInterval(x);b.classList.add('hide')},2550);if(matchMedia('(min-width:761px) and (pointer:fine)').matches){document.querySelectorAll('.panel').forEach(p=>{p.addEventListener('pointermove',e=>{const r=p.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;p.style.transform=`perspective(900px) rotateX(${(-y*2.2).toFixed(2)}deg) rotateY(${(x*2.2).toFixed(2)}deg) translateY(-4px)`});p.addEventListener('pointerleave',()=>p.style.transform='')})}}})();</script>'''
-    return f'''<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#03060d"><title>{escape(title)}</title><style>{css}</style></head><body><div class="app-shell"><aside class="sidebar"><div class="brand-block"><div class="brand-flag" aria-label="金旗標誌"><span>金</span></div><div class="brand-text"><b>金</b></div></div><nav class="nav-stack">{nav}</nav><div class="side-status"><div class="online"><i class="pulse-dot"></i><span>系統正常</span></div><small>財務資料已同步<br>AI 助理待命中</small></div></aside><div class="content-wrap"><header class="topbar"><div class="top-title"><h1>{escape(title)}</h1><p><span data-date>載入日期中</span> · <span data-clock>--:--</span></p></div><div class="top-actions"><div class="status-pill"><i class="pulse-dot"></i>系統正常</div><a class="icon-btn" href="/jarvis/command">✦</a><a class="icon-btn" href="/admin">⚙</a></div></header><header class="mobile-header"><div class="mobile-brand"><div class="brand-flag" aria-label="金旗標誌"><span>金</span></div><div><b>金</b></div></div><div class="mobile-actions"><a class="icon-btn" href="/jarvis/command">✦</a><a class="icon-btn" href="/admin">⚙</a></div></header><main>{body}<footer>金 4.7 · 超跑全儀表修正版</footer></main></div></div><nav class="mobile-nav">{mobile_nav}</nav>{boot_html}{script}</body></html>'''
+    return f'''<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#03060d"><title>{escape(title)}</title><style>{css}</style></head><body><div class="app-shell"><aside class="sidebar"><div class="brand-block"><div class="brand-flag" aria-label="金旗標誌"><span>金</span></div><div class="brand-text"><b>金</b></div></div><nav class="nav-stack">{nav}</nav><div class="side-status"><div class="online"><i class="pulse-dot"></i><span>系統正常</span></div><small>財務資料已同步<br>AI 助理待命中</small></div></aside><div class="content-wrap"><header class="topbar"><div class="top-title"><h1>{escape(title)}</h1><p><span data-date>載入日期中</span> · <span data-clock>--:--</span></p></div><div class="top-actions"><div class="status-pill"><i class="pulse-dot"></i>系統正常</div><a class="icon-btn" href="/jarvis/command">✦</a><a class="icon-btn" href="/admin">⚙</a></div></header><header class="mobile-header"><div class="mobile-brand"><div class="brand-flag" aria-label="金旗標誌"><span>金</span></div><div><b>金</b></div></div><div class="mobile-actions"><a class="icon-btn" href="/jarvis/command">✦</a><a class="icon-btn" href="/admin">⚙</a></div></header><main>{body}<footer>金 4.8 · 旗艦版</footer></main></div></div><nav class="mobile-nav">{mobile_nav}</nav>{boot_html}{script}</body></html>'''
 
 @app.route("/jarvis")
 def jarvis_garage():
-    s=calculate_jarvis_summary();categories=list(s.get("categories") or [])[:6]
-    vals=[float(x[1]) for x in categories] if categories else [0]*6;points=_v4_sparkline(vals+[float(s.get("income",0)),float(s.get("expense",0))]);polygon=f"0,150 {points} 520,150"
-    dots=''.join(f'<circle class="chart-dot" cx="{p.split(",")[0]}" cy="{p.split(",")[1]}" r="4"/>' for p in points.split())
-    advice=s.get("advice") or ["本月財務資料已完成同步。"];advice_html=''.join(f'<div>✦ {escape(str(x))}</div>' for x in advice[:3])
-    colors=["#45e6ff","#7b61ff","#28e5a6","#ffc857","#ff9f43"]
-    bank_rows=''.join(f'<div class="bank-row"><div class="bank-name"><i class="bank-dot" style="--bank:{colors[i%5]}"></i><span>{escape(n)}</span></div><b>NT$ <span data-count="{int(v.get("balance") or 0)}">0</span></b></div>' for i,(n,v) in enumerate(s.get("banks",{}).items())) or '<p style="color:var(--muted)">尚無銀行資料</p>'
-    total=max(sum(vals),1);cat_colors=["#36d6ff","#7b61ff","#28e5a6","#ffc857","#ff5b78","#ff9f43"]
-    category_rows=''.join(f'<div class="cat-row"><span>{escape(str(n))}</span><div class="bar"><i style="--bar:{cat_colors[i%6]}" data-width="{_v4_progress(float(v)/total*100):.1f}"></i></div><b>NT$ {_v4_money(v)}</b></div>' for i,(n,v) in enumerate(categories)) or '<p style="color:var(--muted)">本月尚無分類支出</p>'
-    def stat(label,value,note,icon,tone,width):return f'<section class="panel stat-card reveal" style="--tone:{tone}"><div class="stat-head"><span class="stat-label">{label}</span><span class="stat-icon">{icon}</span></div><div class="stat-value">NT$ <span data-count="{int(value)}">0</span></div><div class="stat-note">{note}</div><div class="mini-line"><i data-width="{_v4_progress(width):.1f}"></i></div></section>'
-    def gauge(label,value,note,tone):
-        v=_v4_progress(value);return f'<section class="panel gauge-card reveal" style="--tone:{tone}"><div class="gauge" style="--p:{v:.1f}"><div class="gauge-inner"><b><span data-count="{v:.1f}" data-decimals="1" data-suffix="%">0%</span></b><small>{label}</small></div></div><p>{note}</p></section>'
-    cash=float(s.get('cash',0));debt=float(s.get('debt',0));balance=float(s.get('balance',0));income=float(s.get('income',0));expense=float(s.get('expense',0));saving=float(s.get('saving_rate',0));health=float(s.get('health_score',0));debt_ratio=debt/max(cash+debt,1)*100
-    body=f'''<div class="dashboard-grid hero-grid"><section class="panel hero-card reveal"><div><div class="eyebrow">財務作戰中心</div><h2>總淨資產</h2><div class="hero-money"><span class="currency">NT$</span><span data-count="{int(s['net_worth'])}">0</span></div><div class="hero-delta">▲ 本月結餘 {'+' if balance>=0 else ''}NT$ <span data-count="{int(balance)}">0</span></div><div class="hero-meta"><div><small>財務健康度</small><b>{int(health)} / 100</b></div><div><small>本月儲蓄率</small><b>{saving:.1f}%</b></div><div><small>風險狀態</small><b>{escape(str(s.get('risk','低')))}風險</b></div><div><small>即時時間</small><b data-clock>--:--</b></div></div></div><div class="speed-cluster" style="--meter:{max(8,min(96,health)):.1f}"><svg viewBox="0 0 180 180"><defs><linearGradient id="speedGradient"><stop offset="0" stop-color="#36d6ff"/><stop offset=".55" stop-color="#7b61ff"/><stop offset="1" stop-color="#28e5a6"/></linearGradient></defs><circle class="speed-bg" cx="90" cy="90" r="76"/><circle class="speed-value" cx="90" cy="90" r="76"/></svg><div class="speed-core"><div><b>{int(health)}</b><small>財務性能</small></div></div></div></section><section class="panel ai-card reveal"><div class="ai-header"><div class="ai-orb">AI</div><span class="ai-live"><i></i>助理已上線</span></div><h3>今日財務簡報</h3><div class="ai-message">{advice_html}</div><div class="ai-actions"><a class="soft-btn" href="/jarvis/command">詢問 AI</a><a class="soft-btn" href="/admin">快速記帳</a></div></section></div>
-    <div class="dashboard-grid stats-grid">{stat('本月收入',income,'收入引擎運作正常','＋','#28e5a6',70)}{stat('本月支出',expense,'即時監控消費動態','－','#ff5b78',expense/max(income,1)*100)}{stat('本月結餘',balance,'可運用資金餘額','◇','#ffc857',abs(balance)/max(income,1)*100)}{stat('現金資產',cash,'銀行與現金合計','⌁','#36d6ff',76)}</div>
-    <div class="dashboard-grid content-grid"><section class="panel section-card reveal"><div class="section-title"><div><div class="eyebrow">本月現金流</div><h3>收支趨勢</h3></div><div class="chart-legend"><span style="--dot:#36d6ff">即時趨勢</span><span style="--dot:#7b61ff">AI 預估</span></div></div><div class="chart"><svg viewBox="0 0 520 170" preserveAspectRatio="none"><defs><linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#36d6ff"/><stop offset="1" stop-color="transparent"/></linearGradient><linearGradient id="lineGradient"><stop offset="0" stop-color="#36d6ff"/><stop offset=".55" stop-color="#7b61ff"/><stop offset="1" stop-color="#28e5a6"/></linearGradient></defs><path class="chart-gridline" d="M0 40H520 M0 85H520 M0 130H520"/><polygon class="area" points="{polygon}"/><polyline class="line" points="{points}"/>{dots}</svg></div></section><section class="panel section-card reveal"><div class="section-title"><div><div class="eyebrow">消費結構</div><h3>支出分類</h3></div><small>本月</small></div><div class="category-list">{category_rows}</div></section></div>
-    <div class="dashboard-grid content-grid"><section class="panel section-card reveal"><div class="section-title"><div><div class="eyebrow">資產配置</div><h3>銀行資產</h3></div><small>即時同步</small></div><div class="bank-list">{bank_rows}</div></section><section class="panel section-card reveal"><div class="section-title"><div><div class="eyebrow">系統摘要</div><h3>財務性能</h3></div><small>超跑中控模式</small></div><div class="bank-list"><div class="bank-row"><span>月底預估支出</span><b>NT$ <span data-count="{int(s.get('projected_expense',0))}">0</span></b></div><div class="bank-row"><span>信用卡已使用</span><b>NT$ <span data-count="{int(s.get('credit_used',0))}">0</span></b></div><div class="bank-row"><span>儲蓄目標完成度</span><b><span data-count="{float(s.get('goal_ratio',0)):.1f}" data-decimals="1" data-suffix="%">0%</span></b></div></div></section></div>
-    <div class="dashboard-grid gauge-grid">{gauge('儲蓄率',saving,f'本月結餘 NT$ {_v4_money(balance)}','#ffc857')}{gauge('信用卡使用率',s.get('credit_ratio',0),f'已使用 NT$ {_v4_money(s.get("credit_used",0))}','#ff9f43')}{gauge('負債比例',debt_ratio,f'負債 NT$ {_v4_money(debt)}','#ff5b78')}{gauge('財務健康度',health,f'{s.get("risk","低")}風險','#28e5a6')}</div><div class="dashboard-end-marker" data-dashboard-complete="true"></div>'''
-    return jarvis_layout(body,"garage","財務總覽",request.args.get("boot","1")=="1")
+    s = calculate_jarvis_summary()
+    categories = list(s.get("categories") or [])[:5]
+    vals = [float(x[1]) for x in categories] if categories else [0] * 5
+    points = _v4_sparkline(vals + [float(s.get("income", 0)), float(s.get("expense", 0))])
+    polygon = f"0,150 {points} 520,150"
+    dots = ''.join(f'<circle class="chart-dot" cx="{p.split(",")[0]}" cy="{p.split(",")[1]}" r="4"/>' for p in points.split())
+    advice = s.get("advice") or ["本月財務資料已完成同步。"]
+    advice_html = ''.join(f'<div>✦ {escape(str(x))}</div>' for x in advice[:4])
+    colors = ["#238de5", "#7555d8", "#38b976", "#ec9f30", "#d9553d"]
+    bank_rows = ''.join(
+        f'<div class="bank-row"><div class="bank-name"><i class="bank-dot" style="--bank:{colors[i%5]}"></i><span>{escape(n)}</span></div><b>NT$ <span data-count="{int(v.get("balance") or 0)}">0</span></b></div>'
+        for i, (n, v) in enumerate(s.get("banks", {}).items())
+    ) or '<p style="color:var(--muted)">尚無銀行資料</p>'
+    total = max(sum(vals), 1)
+    cat_colors = ["#238de5", "#7555d8", "#38b976", "#ec9f30", "#d9553d"]
+    category_rows = ''.join(
+        f'<div class="cat-row"><span>{escape(str(n))}</span><div class="bar"><i style="--bar:{cat_colors[i%5]}" data-width="{_v4_progress(float(v)/total*100):.1f}"></i></div><b>NT$ {_v4_money(v)}</b></div>'
+        for i, (n, v) in enumerate(categories)
+    ) or '<p style="color:var(--muted)">本月尚無分類支出</p>'
+    asset_items = ''.join(
+        f'<div class="asset-item"><i style="--c:{cat_colors[i%5]}"></i><span>{escape(str(n))}<small>NT$ {_v4_money(v)}</small></span><b>{float(v)/total*100:.1f}%</b></div>'
+        for i, (n, v) in enumerate(categories)
+    ) or '<p class="muted">尚無資產分類資料</p>'
+    try:
+        recent = (
+            supabase.table("transactions")
+            .select("*")
+            .eq("account", "個人")
+            .order("created_at", desc=True)
+            .limit(5)
+            .execute()
+            .data or []
+        )
+    except Exception as error:
+        print("4.8 recent transactions error:", error)
+        recent = []
+    recent_rows = ""
+    for row in recent:
+        is_income = row.get("type") == "收入"
+        tone = "#39d87a" if is_income else "#ef5547"
+        sign = "+" if is_income else "-"
+        label = escape(str(row.get("description") or row.get("category") or "交易"))
+        when = escape(str(row.get("created_at") or "")[:16].replace("T", " "))
+        recent_rows += (
+            f'<div class="recent-row" style="--rc:{tone}">'
+            f'<div class="recent-icon">{"＋" if is_income else "－"}</div>'
+            f'<span>{label}<small>{when}</small></span>'
+            f'<b>{sign}NT$ {_v4_money(row.get("amount") or 0)}</b></div>'
+        )
+    if not recent_rows:
+        recent_rows = '<p class="muted">尚無最近交易</p>'
+
+    def stat(label, value, note, icon, tone, width):
+        return f'''<section class="panel stat-card reveal" style="--tone:{tone}">
+        <div class="stat-head"><span class="stat-label">{label}</span><span class="stat-icon">{icon}</span></div>
+        <div class="stat-value">NT$ <span data-count="{int(value)}">0</span></div>
+        <div class="stat-note">{note}</div><div class="mini-line"><i data-width="{_v4_progress(width):.1f}"></i></div></section>'''
+
+    def gauge(label, value, note, tone):
+        v = _v4_progress(value)
+        return f'''<section class="panel gauge-card reveal" style="--tone:{tone}">
+        <div class="gauge" style="--p:{v:.1f}"><div class="gauge-inner"><b><span data-count="{v:.1f}" data-decimals="1" data-suffix="%">0%</span></b><small>{label}</small></div></div><p>{note}</p></section>'''
+
+    cash = float(s.get("cash", 0)); debt = float(s.get("debt", 0)); balance = float(s.get("balance", 0))
+    income = float(s.get("income", 0)); expense = float(s.get("expense", 0)); saving = float(s.get("saving_rate", 0))
+    health = float(s.get("health_score", 0)); debt_ratio = debt / max(cash + debt, 1) * 100
+    quick = ''.join([
+        '<a class="quick-action" href="/admin" style="--qa:#38a8ff"><strong>▤</strong><span>記帳</span></a>',
+        '<a class="quick-action" href="/admin" style="--qa:#83e33c"><strong>＋</strong><span>新增收入</span></a>',
+        '<a class="quick-action" href="/admin" style="--qa:#ef5547"><strong>－</strong><span>新增支出</span></a>',
+        '<a class="quick-action" href="/admin" style="--qa:#e55a75"><strong>↻</strong><span>轉帳管理</span></a>',
+        '<a class="quick-action" href="/admin/smart" style="--qa:#e4b329"><strong>◎</strong><span>預算設定</span></a>',
+        '<a class="quick-action" href="/admin/smart" style="--qa:#6e8cff"><strong>⚑</strong><span>目標管理</span></a>',
+        '<a class="quick-action" href="/jarvis/private" style="--qa:#24cfee"><strong>▥</strong><span>報表分析</span></a>',
+        '<a class="quick-action" href="/jarvis/command" style="--qa:#aa73ef"><strong>AI</strong><span>AI 問答</span></a>',
+    ])
+
+    body = f'''<div class="dashboard-grid hero-grid">
+    <section class="panel hero-card reveal"><div><div class="eyebrow">財務作戰中心</div><h2>總淨資產</h2>
+    <div class="hero-money"><span class="currency">NT$</span><span data-count="{int(s['net_worth'])}">0</span></div>
+    <div class="hero-delta">▲ 本月結餘 {'+' if balance >= 0 else ''}NT$ <span data-count="{int(balance)}">0</span></div>
+    <div class="hero-meta"><div><small>資產總額</small><b>NT$ {_v4_money(cash)}</b></div><div><small>負債總額</small><b>NT$ {_v4_money(debt)}</b></div><div><small>本月收入</small><b>NT$ {_v4_money(income)}</b></div><div><small>本月支出</small><b>NT$ {_v4_money(expense)}</b></div><div><small>儲蓄率</small><b>{saving:.1f}%</b></div></div></div>
+    <div class="car-silhouette" aria-hidden="true"></div>
+    <div class="speed-cluster" style="--meter:{max(8,min(96,health)):.1f}"><svg viewBox="0 0 180 180"><defs><linearGradient id="speedGradient"><stop offset="0" stop-color="#278fe4"/><stop offset=".56" stop-color="#f0f3f6"/><stop offset="1" stop-color="#d94a34"/></linearGradient></defs><circle class="speed-bg" cx="90" cy="90" r="76"/><circle class="speed-value" cx="90" cy="90" r="76"/></svg><div class="speed-core"><div><b>{int(health)}</b><small>財務健康分</small></div></div></div></section>
+    <section class="panel ai-card reveal"><div class="ai-header"><div class="ai-orb">AI</div><span class="ai-live"><i></i>更新中</span></div><h3>今日摘要</h3><div class="ai-message">{advice_html}</div><div class="ai-actions"><a class="soft-btn" href="/jarvis/command">查看完整分析</a></div></section></div>
+
+    <div class="dashboard-grid stats-grid">
+    {stat('月收入總額', income, '收入引擎運作正常', '▣', '#54d83d', 70)}
+    {stat('月支出總額', expense, '即時監控消費動態', '▾', '#ef5547', expense/max(income,1)*100)}
+    {stat('月結餘', balance, '可運用資金餘額', '◇', '#e4b329', abs(balance)/max(income,1)*100)}
+    {stat('銀行存款', cash, '銀行與現金合計', '▥', '#24baf2', 76)}
+    {stat('信用卡負債', s.get('credit_used',0), '可用額度 '+str(round(100-float(s.get('credit_ratio',0)),1))+'%', '▭', '#9a69e8', s.get('credit_ratio',0))}
+    </div>
+
+    <div class="dashboard-grid content-grid">
+    <section class="panel section-card asset-card reveal"><div class="section-title"><div><div class="eyebrow">資產配置</div><h3>資產分布</h3></div><small>本月</small></div><div class="donut-wrap"><div style="position:relative"><div class="donut"></div><div class="donut-label"><small>總資產</small><b>NT$ {_v4_money(cash)}</b></div></div><div class="asset-list">{asset_items}</div></div></section>
+    <section class="panel section-card reveal"><div class="section-title"><div><div class="eyebrow">近六個月</div><h3>收支趨勢</h3></div><div class="chart-legend"><span style="--dot:#55d83e">收入</span><span style="--dot:#ef5547">支出</span><span style="--dot:#25baf3">結餘</span></div></div><div class="chart"><svg viewBox="0 0 520 170" preserveAspectRatio="none"><defs><linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#38adff"/><stop offset="1" stop-color="transparent"/></linearGradient><linearGradient id="lineGradient"><stop offset="0" stop-color="#25baf3"/><stop offset=".55" stop-color="#55d83e"/><stop offset="1" stop-color="#ef5547"/></linearGradient></defs><path class="chart-gridline" d="M0 40H520 M0 85H520 M0 130H520"/><polygon class="area" points="{polygon}"/><polyline class="line" points="{points}"/>{dots}</svg></div></section>
+    <section class="panel section-card recent-card reveal"><div class="section-title"><div><div class="eyebrow">即時紀錄</div><h3>最近交易</h3></div><a href="/admin">查看全部</a></div><div class="recent-list">{recent_rows}</div></section></div>
+
+    <section class="panel quick-panel reveal"><div class="section-title"><div><div class="eyebrow">中控捷徑</div><h3>快速操作</h3></div></div><div class="quick-grid">{quick}</div></section>
+
+    <div class="dashboard-grid gauge-grid">
+    {gauge('健康分數', health, f'{s.get("risk","低")}風險', '#238de5')}
+    {gauge('儲蓄率', saving, f'本月結餘 NT$ {_v4_money(balance)}', '#55d83e')}
+    {gauge('負債比', debt_ratio, f'負債 NT$ {_v4_money(debt)}', '#ec8f31')}
+    {gauge('信用卡使用率', s.get('credit_ratio',0), f'已使用 NT$ {_v4_money(s.get("credit_used",0))}', '#8a61df')}
+    </div>
+
+    <div class="dashboard-grid content-grid">
+    <section class="panel section-card reveal"><div class="section-title"><div><div class="eyebrow">消費結構</div><h3>支出分類</h3></div><small>本月</small></div><div class="category-list">{category_rows}</div></section>
+    <section class="panel section-card reveal"><div class="section-title"><div><div class="eyebrow">銀行同步</div><h3>銀行資產</h3></div><small>即時</small></div><div class="bank-list">{bank_rows}</div></section>
+    <section class="panel section-card reveal"><div class="section-title"><div><div class="eyebrow">核心摘要</div><h3>財務性能</h3></div><small>超跑中控</small></div><div class="bank-list"><div class="bank-row"><span>月底預估支出</span><b>NT$ <span data-count="{int(s.get('projected_expense',0))}">0</span></b></div><div class="bank-row"><span>信用卡已使用</span><b>NT$ <span data-count="{int(s.get('credit_used',0))}">0</span></b></div><div class="bank-row"><span>儲蓄目標完成度</span><b><span data-count="{float(s.get('goal_ratio',0)):.1f}" data-decimals="1" data-suffix="%">0%</span></b></div></div></section></div>
+    <div class="dashboard-end-marker" data-dashboard-complete="true"></div>'''
+    return jarvis_layout(body, "garage", "財務總覽", request.args.get("boot", "1") == "1")
 
 @app.route("/jarvis/command")
 def jarvis_command():
