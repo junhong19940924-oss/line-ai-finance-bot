@@ -35,7 +35,7 @@ configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 TAIPEI = ZoneInfo("Asia/Taipei")
-APP_VERSION = "1.0.0 Stable"
+APP_VERSION = "2.0.0 Smart"
 
 
 # ----------------------------
@@ -2794,6 +2794,315 @@ def admin_delete_debt(debt_id: str):
     return redirect(url_for("admin_home", message="負債已刪除。"))
 
 
+
+# ----------------------------
+# 2.0 Smart Finance
+# ----------------------------
+
+def get_smart_rows(table_name: str, *, order_by: str = "created_at") -> list[dict[str, Any]]:
+    try:
+        response = (
+            supabase.table(table_name)
+            .select("*")
+            .order(order_by, desc=True)
+            .execute()
+        )
+        return response.data or []
+    except Exception as error:
+        print(f"讀取 {table_name} 失敗：", error)
+        return []
+
+
+def calculate_smart_summary() -> dict[str, Any]:
+    now = datetime.now(TAIPEI)
+    month = now.strftime("%Y-%m")
+    try:
+        response = (
+            supabase.table("transactions")
+            .select("*")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        transactions = response.data or []
+    except Exception as error:
+        print("讀取智慧分析交易失敗：", error)
+        transactions = []
+
+    monthly = [
+        row for row in transactions
+        if str(row.get("created_at") or "").startswith(month)
+        and normalize_account(row.get("account")) == "個人"
+    ]
+    income = sum(float(row.get("amount") or 0) for row in monthly if row.get("type") == "收入")
+    expense = sum(float(row.get("amount") or 0) for row in monthly if row.get("type") == "支出")
+    by_category: dict[str, float] = {}
+    daily: dict[str, float] = {}
+    for row in monthly:
+        if row.get("type") != "支出":
+            continue
+        amount = float(row.get("amount") or 0)
+        category = str(row.get("category") or "其他")
+        by_category[category] = by_category.get(category, 0) + amount
+        day = str(row.get("created_at") or "")[:10]
+        daily[day] = daily.get(day, 0) + amount
+
+    elapsed_days = max(now.day, 1)
+    days_in_month = 31
+    for candidate in (28, 29, 30, 31):
+        try:
+            datetime(now.year, now.month, candidate)
+            days_in_month = candidate
+        except ValueError:
+            break
+    projected_expense = expense / elapsed_days * days_in_month if expense else 0
+    top_category = max(by_category, key=by_category.get) if by_category else "尚無資料"
+    saving_rate = ((income - expense) / income * 100) if income > 0 else 0
+
+    budgets = get_smart_rows("budgets", order_by="updated_at")
+    budget_rows = []
+    for item in budgets:
+        if str(item.get("month") or "") not in {month, "每月"}:
+            continue
+        category = str(item.get("category") or "其他")
+        limit_amount = float(item.get("amount") or 0)
+        spent = by_category.get(category, 0)
+        percent = spent / limit_amount * 100 if limit_amount else 0
+        budget_rows.append({**item, "spent": spent, "remaining": limit_amount-spent, "percent": percent})
+
+    goals = get_smart_rows("saving_goals", order_by="updated_at")
+    for goal in goals:
+        target = float(goal.get("target_amount") or 0)
+        current = float(goal.get("current_amount") or 0)
+        goal["percent"] = current / target * 100 if target else 0
+
+    recurring = get_smart_rows("recurring_items", order_by="updated_at")
+    notifications = get_smart_rows("finance_notifications", order_by="created_at")[:20]
+
+    advice = []
+    if income <= 0:
+        advice.append("本月尚未記錄收入，建議先補上薪資或其他收入。")
+    elif saving_rate < 10:
+        advice.append("本月儲蓄率低於 10%，可先從最大支出分類減少 5% 開始。")
+    elif saving_rate >= 30:
+        advice.append("本月儲蓄率表現良好，可以把部分結餘分配到儲蓄目標。")
+    if projected_expense > income and income > 0:
+        advice.append("依目前速度，月底支出可能超過收入，建議立即檢查非必要消費。")
+    if top_category != "尚無資料":
+        advice.append(f"本月最大支出分類是「{top_category}」，可優先檢查這一類。")
+    over_budget = [row for row in budget_rows if row["percent"] > 100]
+    if over_budget:
+        advice.append("已有預算超支項目：" + "、".join(str(row.get("category")) for row in over_budget))
+    if not advice:
+        advice.append("本月資料正常，持續記帳即可累積更準確的分析。")
+
+    return {
+        "month": month,
+        "income": income,
+        "expense": expense,
+        "balance": income-expense,
+        "saving_rate": saving_rate,
+        "projected_expense": projected_expense,
+        "top_category": top_category,
+        "categories": sorted(by_category.items(), key=lambda x: x[1], reverse=True),
+        "daily": sorted(daily.items()),
+        "budgets": budget_rows,
+        "goals": goals,
+        "recurring": recurring,
+        "notifications": notifications,
+        "advice": advice,
+    }
+
+
+def smart_page_html(summary: dict[str, Any], *, admin: bool = False, message: str = "") -> str:
+    notice = f'<div class="notice">{escape(message)}</div>' if message else ""
+    category_rows = "".join(
+        f'<tr><td>{escape(name)}</td><td>NT$ {int(amount):,}</td></tr>'
+        for name, amount in summary["categories"]
+    ) or '<tr><td colspan="2">尚無支出資料</td></tr>'
+
+    budget_cards = ""
+    for row in summary["budgets"]:
+        percent = min(max(float(row["percent"]), 0), 100)
+        budget_cards += f'''<div class="item-card"><h3>{escape(str(row.get("category") or ""))}</h3>
+        <p>預算 NT$ {int(row.get("amount") or 0):,}｜已用 NT$ {int(row["spent"]):,}</p>
+        <div class="bar"><span style="width:{percent:.1f}%"></span></div>
+        <small>剩餘 NT$ {int(row["remaining"]):,}｜{row["percent"]:.1f}%</small></div>'''
+    if not budget_cards:
+        budget_cards = '<div class="empty">尚未設定預算。</div>'
+
+    goal_cards = ""
+    for row in summary["goals"]:
+        percent = min(max(float(row["percent"]), 0), 100)
+        goal_cards += f'''<div class="item-card"><h3>{escape(str(row.get("name") or ""))}</h3>
+        <p>NT$ {int(row.get("current_amount") or 0):,} / NT$ {int(row.get("target_amount") or 0):,}</p>
+        <div class="bar goal"><span style="width:{percent:.1f}%"></span></div>
+        <small>{row["percent"]:.1f}%｜期限 {escape(str(row.get("target_date") or "未設定"))}</small></div>'''
+    if not goal_cards:
+        goal_cards = '<div class="empty">尚未建立儲蓄目標。</div>'
+
+    recurring_rows = "".join(
+        f'<tr><td>{escape(str(row.get("name") or ""))}</td><td>{escape(str(row.get("item_type") or ""))}</td><td>NT$ {int(row.get("amount") or 0):,}</td><td>每月 {int(row.get("day_of_month") or 1)} 日</td><td>{"啟用" if row.get("is_active", True) else "停用"}</td></tr>'
+        for row in summary["recurring"]
+    ) or '<tr><td colspan="5">尚無固定收支。</td></tr>'
+
+    advice_html = "".join(f'<li>{escape(text)}</li>' for text in summary["advice"])
+    admin_link = '<a class="button" href="/admin/smart">管理 2.0 功能</a>' if not admin else '<a class="button secondary" href="/smart">查看智慧首頁</a><a class="button secondary" href="/admin">返回管理後台</a>'
+
+    admin_forms = ""
+    if admin:
+        admin_forms = f'''
+        <section><h2>新增／更新預算</h2><form method="post" action="/admin/smart/budget" class="form-grid">
+        <input name="category" placeholder="分類，例如：飲食" required><input name="amount" placeholder="預算金額" required>
+        <input name="month" value="{escape(summary['month'])}" required><button>儲存預算</button></form></section>
+        <section><h2>新增儲蓄目標</h2><form method="post" action="/admin/smart/goal" class="form-grid">
+        <input name="name" placeholder="目標，例如：日本旅遊" required><input name="target_amount" placeholder="目標金額" required>
+        <input name="current_amount" placeholder="目前金額" value="0" required><input type="date" name="target_date"><button>新增目標</button></form></section>
+        <section><h2>新增固定收入／支出</h2><form method="post" action="/admin/smart/recurring" class="form-grid">
+        <input name="name" placeholder="名稱，例如：Netflix" required><select name="item_type"><option>支出</option><option>收入</option></select>
+        <input name="amount" placeholder="金額" required><input type="number" min="1" max="31" name="day_of_month" value="1" required>
+        <input name="category" placeholder="分類"><button>新增固定項目</button></form></section>
+        <section><h2>目標快速存款</h2><form method="post" action="/admin/smart/goal/deposit" class="form-grid">
+        <input name="name" placeholder="目標名稱" required><input name="amount" placeholder="輸入 +500 或 -100" required><button>更新進度</button></form></section>
+        '''
+
+    return f'''<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>AI 財務管家 2.0</title><style>
+    *{{box-sizing:border-box}}body{{margin:0;background:#f5f5f7;color:#1d1d1f;font-family:-apple-system,"Microsoft JhengHei",sans-serif}}
+    .wrap{{max-width:1180px;margin:auto;padding:24px}}header{{display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap}}
+    .button,button{{display:inline-block;background:#007aff;color:white;border:0;border-radius:12px;padding:11px 16px;text-decoration:none;font-weight:700;margin:3px}}
+    .secondary{{background:#e8e8ed;color:#1d1d1f}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:20px 0}}
+    .card,section{{background:white;border-radius:22px;padding:20px;box-shadow:0 8px 30px rgba(0,0,0,.05);margin-bottom:16px}}
+    .card .value{{font-size:28px;font-weight:800}}h1,h2,h3{{margin-top:0}}.two{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}
+    .item-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}}.item-card{{border:1px solid #e5e5ea;padding:15px;border-radius:16px}}
+    .bar{{height:10px;background:#eee;border-radius:10px;overflow:hidden}}.bar span{{display:block;height:100%;background:#ff9500}}.bar.goal span{{background:#34c759}}
+    table{{width:100%;border-collapse:collapse}}th,td{{padding:10px;border-bottom:1px solid #eee;text-align:left}}ul{{line-height:1.8}}
+    .form-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}}input,select{{padding:12px;border:1px solid #d2d2d7;border-radius:11px;font-size:15px}}
+    .notice{{padding:12px;background:#fff3cd;border-radius:12px;margin:12px 0}}.empty{{color:#6e6e73}}@media(max-width:760px){{.two{{grid-template-columns:1fr}}}}
+    </style></head><body><div class="wrap"><header><div><h1>AI 財務管家 2.0</h1><p>{escape(summary['month'])} 智慧分析與目標管理</p></div><div>{admin_link}</div></header>{notice}
+    <div class="grid"><div class="card"><small>本月收入</small><div class="value">NT$ {int(summary['income']):,}</div></div>
+    <div class="card"><small>本月支出</small><div class="value">NT$ {int(summary['expense']):,}</div></div>
+    <div class="card"><small>本月結餘</small><div class="value">NT$ {int(summary['balance']):,}</div></div>
+    <div class="card"><small>儲蓄率</small><div class="value">{summary['saving_rate']:.1f}%</div></div>
+    <div class="card"><small>月底預估支出</small><div class="value">NT$ {int(summary['projected_expense']):,}</div></div>
+    <div class="card"><small>最大支出分類</small><div class="value">{escape(summary['top_category'])}</div></div></div>
+    <section><h2>AI 財務建議</h2><ul>{advice_html}</ul></section>
+    <div class="two"><section><h2>分類支出</h2><table><thead><tr><th>分類</th><th>金額</th></tr></thead><tbody>{category_rows}</tbody></table></section>
+    <section><h2>固定收入／支出</h2><table><thead><tr><th>名稱</th><th>類型</th><th>金額</th><th>日期</th><th>狀態</th></tr></thead><tbody>{recurring_rows}</tbody></table></section></div>
+    <section><h2>預算進度</h2><div class="item-grid">{budget_cards}</div></section>
+    <section><h2>儲蓄目標</h2><div class="item-grid">{goal_cards}</div></section>{admin_forms}
+    <footer><small>AI Finance Manager · Version {APP_VERSION}</small></footer></div></body></html>'''
+
+
+@app.route("/smart", methods=["GET"])
+def smart_dashboard():
+    return smart_page_html(calculate_smart_summary())
+
+
+@app.route("/admin/smart", methods=["GET"])
+def admin_smart():
+    if not admin_logged_in():
+        return redirect(url_for("admin_home"))
+    return smart_page_html(
+        calculate_smart_summary(),
+        admin=True,
+        message=request.args.get("message", ""),
+    )
+
+
+@app.route("/admin/smart/budget", methods=["POST"])
+def admin_smart_budget():
+    if not admin_logged_in():
+        return redirect(url_for("admin_home"))
+    try:
+        category = request.form.get("category", "").strip()
+        month = request.form.get("month", "").strip() or datetime.now(TAIPEI).strftime("%Y-%m")
+        amount = safe_eval_number_expression(request.form.get("amount", "0"), 0)
+        if not category:
+            raise ValueError("分類不可空白")
+        existing = supabase.table("budgets").select("id").eq("category", category).eq("month", month).limit(1).execute().data or []
+        payload = {"category": category, "month": month, "amount": amount, "updated_at": datetime.now(TAIPEI).isoformat()}
+        if existing:
+            supabase.table("budgets").update(payload).eq("id", existing[0]["id"]).execute()
+        else:
+            supabase.table("budgets").insert(payload).execute()
+        write_audit_log(action="upsert", source="WEB", entity_type="budget", entity_id=f"{month}:{category}", after_data=payload)
+        message = "預算已儲存。"
+    except Exception as error:
+        message = f"預算儲存失敗：{error}"
+    return redirect(url_for("admin_smart", message=message))
+
+
+@app.route("/admin/smart/goal", methods=["POST"])
+def admin_smart_goal():
+    if not admin_logged_in():
+        return redirect(url_for("admin_home"))
+    try:
+        payload = {
+            "name": request.form.get("name", "").strip(),
+            "target_amount": safe_eval_number_expression(request.form.get("target_amount", "0"), 0),
+            "current_amount": safe_eval_number_expression(request.form.get("current_amount", "0"), 0),
+            "target_date": request.form.get("target_date") or None,
+            "updated_at": datetime.now(TAIPEI).isoformat(),
+        }
+        if not payload["name"]:
+            raise ValueError("目標名稱不可空白")
+        supabase.table("saving_goals").insert(payload).execute()
+        write_audit_log(action="create", source="WEB", entity_type="saving_goal", entity_id=payload["name"], after_data=payload)
+        message = "儲蓄目標已新增。"
+    except Exception as error:
+        message = f"新增目標失敗：{error}"
+    return redirect(url_for("admin_smart", message=message))
+
+
+@app.route("/admin/smart/goal/deposit", methods=["POST"])
+def admin_smart_goal_deposit():
+    if not admin_logged_in():
+        return redirect(url_for("admin_home"))
+    try:
+        name = request.form.get("name", "").strip()
+        rows = supabase.table("saving_goals").select("*").eq("name", name).limit(1).execute().data or []
+        if not rows:
+            raise ValueError("找不到這個儲蓄目標")
+        row = rows[0]
+        current = int(row.get("current_amount") or 0)
+        new_value = safe_eval_number_expression(request.form.get("amount", "0"), current)
+        supabase.table("saving_goals").update({"current_amount": new_value, "updated_at": datetime.now(TAIPEI).isoformat()}).eq("id", row["id"]).execute()
+        write_audit_log(action="update", source="WEB", entity_type="saving_goal", entity_id=row["id"], before_data={"current_amount": current}, after_data={"current_amount": new_value})
+        message = f"{name} 已更新為 NT$ {new_value:,}。"
+    except Exception as error:
+        message = f"更新目標失敗：{error}"
+    return redirect(url_for("admin_smart", message=message))
+
+
+@app.route("/admin/smart/recurring", methods=["POST"])
+def admin_smart_recurring():
+    if not admin_logged_in():
+        return redirect(url_for("admin_home"))
+    try:
+        payload = {
+            "name": request.form.get("name", "").strip(),
+            "item_type": request.form.get("item_type", "支出"),
+            "amount": safe_eval_number_expression(request.form.get("amount", "0"), 0),
+            "day_of_month": int(request.form.get("day_of_month", "1")),
+            "category": request.form.get("category", "其他").strip() or "其他",
+            "is_active": True,
+            "updated_at": datetime.now(TAIPEI).isoformat(),
+        }
+        if not payload["name"] or payload["item_type"] not in {"收入", "支出"} or not 1 <= payload["day_of_month"] <= 31:
+            raise ValueError("固定收支資料格式錯誤")
+        supabase.table("recurring_items").insert(payload).execute()
+        write_audit_log(action="create", source="WEB", entity_type="recurring_item", entity_id=payload["name"], after_data=payload)
+        message = "固定收入／支出已新增。"
+    except Exception as error:
+        message = f"新增固定項目失敗：{error}"
+    return redirect(url_for("admin_smart", message=message))
+
+
+@app.route("/api/smart/summary", methods=["GET"])
+def smart_summary_api():
+    return jsonify(calculate_smart_summary())
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return {"status": "ok"}, 200
@@ -3086,6 +3395,66 @@ def handle_message(event: MessageEvent):
             return
 
         reply_line(event, f"✅ {card_name}「{action}」已更新")
+        return
+
+    if user_text in {"智慧分析", "本月分析", "財務分析"}:
+        summary = calculate_smart_summary()
+        reply_line(
+            event,
+            f"📊 {summary['month']} 智慧分析\n"
+            f"收入：NT$ {int(summary['income']):,}\n"
+            f"支出：NT$ {int(summary['expense']):,}\n"
+            f"結餘：NT$ {int(summary['balance']):,}\n"
+            f"儲蓄率：{summary['saving_rate']:.1f}%\n"
+            f"月底預估支出：NT$ {int(summary['projected_expense']):,}\n"
+            f"最大分類：{summary['top_category']}\n\n"
+            + "\n".join(f"• {text}" for text in summary["advice"][:3]),
+        )
+        return
+
+    budget_match = re.match(r"^設定預算\s+(\S+)\s+([\d,]+)$", user_text)
+    if budget_match:
+        category = budget_match.group(1)
+        amount = int(budget_match.group(2).replace(",", ""))
+        month = datetime.now(TAIPEI).strftime("%Y-%m")
+        try:
+            rows = supabase.table("budgets").select("id").eq("category", category).eq("month", month).limit(1).execute().data or []
+            payload = {"category": category, "month": month, "amount": amount, "updated_at": datetime.now(TAIPEI).isoformat()}
+            if rows:
+                supabase.table("budgets").update(payload).eq("id", rows[0]["id"]).execute()
+            else:
+                supabase.table("budgets").insert(payload).execute()
+            reply_line(event, f"✅ {month} {category}預算已設定為 NT$ {amount:,}")
+        except Exception as error:
+            reply_line(event, f"設定預算失敗：{error}")
+        return
+
+    goal_match = re.match(r"^新增目標\s+(\S+)\s+([\d,]+)$", user_text)
+    if goal_match:
+        name = goal_match.group(1)
+        target = int(goal_match.group(2).replace(",", ""))
+        try:
+            supabase.table("saving_goals").insert({"name": name, "target_amount": target, "current_amount": 0, "updated_at": datetime.now(TAIPEI).isoformat()}).execute()
+            reply_line(event, f"✅ 儲蓄目標「{name}」已建立，目標 NT$ {target:,}")
+        except Exception as error:
+            reply_line(event, f"新增目標失敗：{error}")
+        return
+
+    goal_deposit_match = re.match(r"^目標存款\s+(\S+)\s+([+\-*/]?[\d,]+)$", user_text)
+    if goal_deposit_match:
+        name = goal_deposit_match.group(1)
+        expression = goal_deposit_match.group(2)
+        try:
+            rows = supabase.table("saving_goals").select("*").eq("name", name).limit(1).execute().data or []
+            if not rows:
+                raise ValueError("找不到目標")
+            row = rows[0]
+            current = int(row.get("current_amount") or 0)
+            new_value = safe_eval_number_expression(expression, current)
+            supabase.table("saving_goals").update({"current_amount": new_value, "updated_at": datetime.now(TAIPEI).isoformat()}).eq("id", row["id"]).execute()
+            reply_line(event, f"✅ {name}目前已存 NT$ {new_value:,}")
+        except Exception as error:
+            reply_line(event, f"更新目標失敗：{error}")
         return
 
     if user_text in {"系統檢查", "健康檢查", "系統狀態"}:
