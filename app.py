@@ -3160,11 +3160,11 @@ def calculate_jarvis_summary() -> dict[str, Any]:
 
 def jarvis_layout(body: str, active: str, title: str, boot: bool = False) -> str:
     links = [
-        ("garage", "/jarvis", "◉", "GARAGE"),
-        ("command", "/jarvis/command", "⌁", "COMMAND"),
-        ("private", "/jarvis/private", "◆", "PRIVATE"),
-        ("themes", "/jarvis/themes", "✦", "THEMES"),
-        ("classic", "/smart", "▦", "CLASSIC"),
+        ("garage", "/jarvis", "◉", "主控中心"),
+        ("command", "/jarvis/command", "⌁", "AI 助理"),
+        ("private", "/jarvis/private", "◆", "個人專區"),
+        ("themes", "/jarvis/themes", "✦", "主題設定"),
+        ("classic", "/smart", "▦", "經典介面"),
     ]
     nav = "".join(
         f'<a class="nav {"on" if k == active else ""}" href="{u}">'
@@ -3178,10 +3178,10 @@ def jarvis_layout(body: str, active: str, title: str, boot: bool = False) -> str
         <div class="boot-ring ring-two"></div>
         <div class="boot-core">
             <div id="boot-word">J</div>
-            <div class="boot-sub">PROJECT JARVIS</div>
-            <div class="boot-terminal"><span id="boot-line">INITIALIZING CORE...</span></div>
+            <div class="boot-sub">AI 財務管家</div>
+            <div class="boot-terminal"><span id="boot-line">正在啟動核心系統...</span></div>
             <div class="boot-track"><i></i></div>
-            <small>SUPERSPORT FINANCIAL SYSTEM</small>
+            <small>超跑風格財務系統</small>
         </div>
     </div>
     ''' if boot else ""
@@ -3265,7 +3265,7 @@ def jarvis_layout(body: str, active: str, title: str, boot: bool = False) -> str
         if(boot){
             const word=document.getElementById("boot-word"),line=document.getElementById("boot-line");
             ["J","JA","JAR","JARV","JARVI","JARVIS"].forEach((v,i)=>setTimeout(()=>{if(word)word.textContent=v},150+i*210));
-            ["INITIALIZING CORE...","CONNECTING FINANCE DATABASE...","CALIBRATING TELEMETRY...","LOADING SECURITY MATRIX...","AI SYSTEM READY"].forEach((v,i)=>setTimeout(()=>{if(line)line.textContent=v},350+i*560));
+            ["正在啟動核心系統...","正在連線財務資料庫...","正在校正財務儀表...","正在載入安全模組...","AI 助理已上線"].forEach((v,i)=>setTimeout(()=>{if(line)line.textContent=v},350+i*560));
             setTimeout(()=>boot.classList.add("hide"),3300);
         }
         const fmt=(v,d=0)=>Number(v).toLocaleString("zh-TW",{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -3288,7 +3288,7 @@ def jarvis_layout(body: str, active: str, title: str, boot: bool = False) -> str
     </script>
     '''
 
-    return f'''<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#05070a"><title>{escape(title)}</title><style>{css}</style></head><body><canvas id="particle-canvas"></canvas><div class="cursor-glow"></div><div class="scanline"></div><div class="app"><header class="top"><div><div class="brand">PROJECT <em>JARVIS</em></div><small class="label">{APP_VERSION}</small></div><div class="online">SYSTEM ONLINE</div></header><div class="layout"><nav class="side">{nav}</nav><main>{body}<footer>AI 財務管家 · PROJECT JARVIS · SUPERSPORT EDITION</footer></main></div></div>{boot_html}{script}</body></html>'''
+    return f'''<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#05070a"><title>{escape(title)}</title><style>{css}</style></head><body><canvas id="particle-canvas"></canvas><div class="cursor-glow"></div><div class="scanline"></div><div class="app"><header class="top"><div><div class="brand">PROJECT <em>JARVIS</em></div><small class="label">{APP_VERSION}</small></div><div class="online">系統正常</div></header><div class="layout"><nav class="side">{nav}</nav><main>{body}<footer>AI 財務管家 · AI 財務管家 · SUPERSPORT EDITION</footer></main></div></div>{boot_html}{script}</body></html>'''
 
 
 @app.route("/jarvis")
@@ -3331,7 +3331,7 @@ def jarvis_garage():
     body = f'''
     <section class="panel hero tilt">
         <div class="hero-rings"><i></i><i></i><i></i></div>
-        <div class="label">GARAGE MODE · TOTAL NET WORTH</div>
+        <div class="label">主控中心 · 總淨資產</div>
         <div class="money">NT$ <span data-count="{int(s["net_worth"])}">0</span></div>
         <div class="sub-value">本月結餘 {"+" if s["balance"] >= 0 else ""}NT$ <span data-count="{int(s["balance"])}">0</span></div>
         <div class="actions">
@@ -3343,27 +3343,27 @@ def jarvis_garage():
     </section>
 
     <div class="cluster">
-        {dial("CASH RESERVE", cash_ratio, f'現金 NT$ {int(s["cash"]):,}')}
-        {dial("CREDIT LOAD", credit_ratio, f'已使用 NT$ {int(s["credit_used"]):,}')}
-        {dial("DEBT PRESSURE", debt_ratio, f'負債 NT$ {int(s["debt"]):,}')}
-        {dial("BUDGET LOAD", budget_ratio, "本月預算使用率")}
+        {dial("現金存款", cash_ratio, f'現金 NT$ {int(s["cash"]):,}')}
+        {dial("信用卡使用率", credit_ratio, f'已使用 NT$ {int(s["credit_used"]):,}')}
+        {dial("負債比例", debt_ratio, f'負債 NT$ {int(s["debt"]):,}')}
+        {dial("預算使用率", budget_ratio, "本月預算使用率")}
     </div>
 
     <div class="grid g3" style="margin-top:16px">
-        <section class="panel tilt"><div class="label">MONTHLY INCOME</div><div class="metric accent">+ NT$ <span data-count="{int(s["income"])}">0</span></div><div class="telemetry">{telemetry}</div><div class="micro">INCOME ENGINE · LIVE</div></section>
-        <section class="panel tilt"><div class="label">MONTHLY EXPENSE</div><div class="metric">- NT$ <span data-count="{int(s["expense"])}">0</span></div><div class="bar"><i data-width="{min(max(float(s["expense"]) / max(float(s["income"]), 1) * 100, 0), 100):.1f}"></i></div><div class="micro" style="margin-top:10px">最大支出：{escape(s["top_category"])}</div></section>
-        <section class="panel tilt"><div class="label">FINANCIAL HEALTH</div><div class="metric accent"><span data-count="{int(s["health_score"])}">0</span> / 100</div><div class="bar"><i data-width="{int(s["health_score"])}"></i></div><div class="micro" style="margin-top:10px">{escape(s["risk"])} RISK · JARVIS RATING</div></section>
+        <section class="panel tilt"><div class="label">本月收入</div><div class="metric accent">+ NT$ <span data-count="{int(s["income"])}">0</span></div><div class="telemetry">{telemetry}</div><div class="micro">收入動態 · 即時更新</div></section>
+        <section class="panel tilt"><div class="label">本月支出</div><div class="metric">- NT$ <span data-count="{int(s["expense"])}">0</span></div><div class="bar"><i data-width="{min(max(float(s["expense"]) / max(float(s["income"]), 1) * 100, 0), 100):.1f}"></i></div><div class="micro" style="margin-top:10px">最大支出：{escape(s["top_category"])}</div></section>
+        <section class="panel tilt"><div class="label">財務健康度</div><div class="metric accent"><span data-count="{int(s["health_score"])}">0</span> / 100</div><div class="bar"><i data-width="{int(s["health_score"])}"></i></div><div class="micro" style="margin-top:10px">{escape(s["risk"])} 風險 · AI 財務評分</div></section>
     </div>
 
     <div class="grid g2" style="margin-top:16px">
-        <section class="panel tilt"><div class="label">BANK TELEMETRY</div><h3>資金艙狀態</h3><div class="list">{banks}</div></section>
-        <section class="panel tilt"><div class="label">MONTHLY ENGINE</div><h3>本月動力數據</h3><div class="list"><div class="row"><span>收入</span><b>NT$ <span data-count="{int(s["income"])}">0</span></b></div><div class="row"><span>支出</span><b>NT$ <span data-count="{int(s["expense"])}">0</span></b></div><div class="row"><span>月底預估</span><b>NT$ <span data-count="{int(s["projected_expense"])}">0</span></b></div><div class="row"><span>目標完成度</span><b><span data-count="{float(s["goal_ratio"]):.1f}" data-decimals="1" data-suffix="%">0%</span></b></div></div></section>
+        <section class="panel tilt"><div class="label">銀行資產</div><h3>資金艙狀態</h3><div class="list">{banks}</div></section>
+        <section class="panel tilt"><div class="label">本月財務數據</div><h3>本月動力數據</h3><div class="list"><div class="row"><span>收入</span><b>NT$ <span data-count="{int(s["income"])}">0</span></b></div><div class="row"><span>支出</span><b>NT$ <span data-count="{int(s["expense"])}">0</span></b></div><div class="row"><span>月底預估</span><b>NT$ <span data-count="{int(s["projected_expense"])}">0</span></b></div><div class="row"><span>目標完成度</span><b><span data-count="{float(s["goal_ratio"]):.1f}" data-decimals="1" data-suffix="%">0%</span></b></div></div></section>
     </div>
 
-    <div class="ai-panel"><div class="ai-head"><b>JARVIS</b><span class="ai-status">● ONLINE</span></div><div class="label" style="margin-bottom:8px">FINANCIAL ASSISTANT</div><div class="ai-message">{ai_message}</div></div>
+    <div class="ai-panel"><div class="ai-head"><b>JARVIS</b><span class="ai-status">● 上線</span></div><div class="label" style="margin-bottom:8px">AI 財務助理</div><div class="ai-message">{ai_message}</div></div>
     <button class="ai-orb" type="button" aria-label="開啟 JARVIS AI 助理"><b>J</b></button>
     '''
-    return jarvis_layout(body, "garage", "JARVIS Supercar Garage", request.args.get("boot", "1") == "1")
+    return jarvis_layout(body, "garage", "AI 財務管家 3.1 中文旗艦版", request.args.get("boot", "1") == "1")
 
 
 @app.route("/jarvis/command")
@@ -3372,7 +3372,7 @@ def jarvis_command():
     missions=[("維持正現金流",s["balance"]>=0),("信用卡低於30%",s["credit_ratio"]<30),("儲蓄率達20%",s["saving_rate"]>=20),("預算未超支",s["budget_ratio"]<=100)]
     mission_html="".join(f'<div class="row"><span>{"✓" if ok else "△"} {escape(n)}</span><b class="accent">{"CLEAR" if ok else "ACTIVE"}</b></div>' for n,ok in missions)
     advice="".join(f'<div class="row"><span>◈ {escape(a)}</span></div>' for a in s["advice"])
-    body=f'''<div class="grid g2"><section class="panel"><h3>THREAT RADAR</h3><div class="radar"></div><div style="text-align:center"><div class="label">DEFENSE SCORE</div><div class="metric accent">{s["health_score"]}/100</div></div></section><section class="panel"><h3>MISSION STATUS</h3><div class="list">{mission_html}</div></section></div><section class="panel" style="margin-top:16px"><h3>AI CORE ANALYSIS</h3><div class="list">{advice}</div></section><div class="grid g3" style="margin-top:16px"><section class="panel"><div class="label">DEBT THREAT</div><div class="metric">NT$ {int(s["debt"]):,}</div></section><section class="panel"><div class="label">BUDGET LOAD</div><div class="metric">{s["budget_ratio"]:.1f}%</div></section><section class="panel"><div class="label">CREDIT LOAD</div><div class="metric">{s["credit_ratio"]:.1f}%</div></section></div>'''
+    body=f'''<div class="grid g2"><section class="panel"><h3>THREAT RADAR</h3><div class="radar"></div><div style="text-align:center"><div class="label">DEFENSE SCORE</div><div class="metric accent">{s["health_score"]}/100</div></div></section><section class="panel"><h3>MISSION STATUS</h3><div class="list">{mission_html}</div></section></div><section class="panel" style="margin-top:16px"><h3>AI CORE ANALYSIS</h3><div class="list">{advice}</div></section><div class="grid g3" style="margin-top:16px"><section class="panel"><div class="label">DEBT THREAT</div><div class="metric">NT$ {int(s["debt"]):,}</div></section><section class="panel"><div class="label">預算使用率</div><div class="metric">{s["budget_ratio"]:.1f}%</div></section><section class="panel"><div class="label">信用卡使用率</div><div class="metric">{s["credit_ratio"]:.1f}%</div></section></div>'''
     return jarvis_layout(body,"command","JARVIS Command Center")
 
 
@@ -3380,13 +3380,13 @@ def jarvis_command():
 def jarvis_private():
     s=calculate_jarvis_summary(); rating="AAA" if s["health_score"]>=90 else "AA" if s["health_score"]>=80 else "A" if s["health_score"]>=70 else "BBB"
     cats="".join(f'<div class="row"><span>{escape(n)}</span><b>NT$ {int(v):,}</b></div>' for n,v in s["categories"][:6]) or '<span class="label">尚無資料</span>'
-    body=f'''<section class="panel report hero"><div class="label gold">PRIVATE WEALTH REPORT · {escape(s["month"])}</div><div class="money gold">NT$ {int(s["net_worth"]):,}</div><div>NET WORTH</div></section><div class="grid g3" style="margin-top:16px"><section class="panel report"><div class="label">WEALTH RATING</div><div class="metric gold">{rating}</div></section><section class="panel report"><div class="label">SAVINGS RATE</div><div class="metric gold">{s["saving_rate"]:.1f}%</div></section><section class="panel report"><div class="label">MONTHLY BALANCE</div><div class="metric gold">NT$ {int(s["balance"]):,}</div></section></div><div class="grid g2" style="margin-top:16px"><section class="panel report"><h3 class="gold">EXPENDITURE PORTFOLIO</h3>{cats}</section><section class="panel report"><h3 class="gold">EXECUTIVE SUMMARY</h3>{''.join(f'<div class="row"><span>{escape(a)}</span></div>' for a in s["advice"][:4])}</section></div>'''
+    body=f'''<section class="panel report hero"><div class="label gold">個人財富 REPORT · {escape(s["month"])}</div><div class="money gold">NT$ {int(s["net_worth"]):,}</div><div>NET WORTH</div></section><div class="grid g3" style="margin-top:16px"><section class="panel report"><div class="label">WEALTH RATING</div><div class="metric gold">{rating}</div></section><section class="panel report"><div class="label">SAVINGS RATE</div><div class="metric gold">{s["saving_rate"]:.1f}%</div></section><section class="panel report"><div class="label">MONTHLY BALANCE</div><div class="metric gold">NT$ {int(s["balance"]):,}</div></section></div><div class="grid g2" style="margin-top:16px"><section class="panel report"><h3 class="gold">EXPENDITURE PORTFOLIO</h3>{cats}</section><section class="panel report"><h3 class="gold">EXECUTIVE SUMMARY</h3>{''.join(f'<div class="row"><span>{escape(a)}</span></div>' for a in s["advice"][:4])}</section></div>'''
     return jarvis_layout(body,"private","JARVIS Private Bank")
 
 
 @app.route("/jarvis/themes")
 def jarvis_themes():
-    body='''<section class="panel"><h3>THEME GARAGE</h3><p class="label">即時切換主色，設定會保存在這台裝置。</p><div class="grid g3"><button class="theme" data-theme="lime">🏎️ SUPERCAR LIME</button><button class="theme" data-theme="blue">🛰️ COMMAND BLUE</button><button class="theme" data-theme="red">🔥 PERFORMANCE RED</button><button class="theme" data-theme="gold">👑 PRIVATE GOLD</button></div></section><section class="panel" style="margin-top:16px"><h3>PHASE 1 STATUS</h3><div class="list"><div class="row"><span>Garage 跑車首頁</span><b class="accent">ONLINE</b></div><div class="row"><span>Command Center 戰情室</span><b class="accent">ONLINE</b></div><div class="row"><span>Private Bank 黑金報告</span><b class="accent">ONLINE</b></div><div class="row"><span>手機響應式介面</span><b class="accent">ONLINE</b></div></div></section>'''
+    body='''<section class="panel"><h3>THEME GARAGE</h3><p class="label">即時切換主色，設定會保存在這台裝置。</p><div class="grid g3"><button class="theme" data-theme="lime">🏎️ SUPERCAR LIME</button><button class="theme" data-theme="blue">🛰️ COMMAND BLUE</button><button class="theme" data-theme="red">🔥 PERFORMANCE RED</button><button class="theme" data-theme="gold">👑 PRIVATE GOLD</button></div></section><section class="panel" style="margin-top:16px"><h3>PHASE 1 STATUS</h3><div class="list"><div class="row"><span>Garage 跑車首頁</span><b class="accent">上線</b></div><div class="row"><span>Command Center 戰情室</span><b class="accent">上線</b></div><div class="row"><span>Private Bank 黑金報告</span><b class="accent">上線</b></div><div class="row"><span>手機響應式介面</span><b class="accent">上線</b></div></div></section>'''
     return jarvis_layout(body,"themes","JARVIS Theme Garage")
 
 
