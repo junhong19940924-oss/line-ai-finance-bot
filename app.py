@@ -35,7 +35,15 @@ configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 TAIPEI = ZoneInfo("Asia/Taipei")
-APP_VERSION = "3.0.0 Project JARVIS - Phase 1"
+APP_VERSION = "3.0.0 Project JARVIS"
+
+
+@app.before_request
+def redirect_root_to_jarvis():
+    """Use Project JARVIS as the public home page while keeping legacy routes intact."""
+    if request.path == "/":
+        return redirect(url_for("jarvis_garage"))
+    return None
 
 
 # ----------------------------
