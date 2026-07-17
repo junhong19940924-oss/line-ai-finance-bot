@@ -35,7 +35,7 @@ configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 TAIPEI = ZoneInfo("Asia/Taipei")
-APP_VERSION = "4.0.0 Ultimate Alpha"
+APP_VERSION = "4.0.1 Ultimate Alpha Mobile Fix"
 
 
 @app.before_request
@@ -3225,7 +3225,60 @@ def jarvis_layout(body: str, active: str, title: str, boot: bool = False) -> str
     #boot{position:fixed;inset:0;z-index:99;display:grid;place-items:center;background:#020305;transition:opacity .65s,visibility .65s}.boot-grid{position:absolute;inset:0;background-image:linear-gradient(rgba(57,231,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(57,231,255,.05) 1px,transparent 1px);background-size:46px 46px;animation:gridMove 6s linear infinite}.boot-halo{position:absolute;width:440px;height:440px;border-radius:50%;border:1px solid rgba(57,231,255,.2);box-shadow:0 0 100px rgba(57,231,255,.14),inset 0 0 80px rgba(57,231,255,.08);animation:spin 8s linear infinite}.boot-card{text-align:center;position:relative}.boot-logo{font-size:70px;font-weight:900;color:var(--accent);text-shadow:0 0 32px var(--accent)}.boot-card h1{letter-spacing:.18em;font-size:18px}.boot-card p{color:var(--muted);font-size:12px}.boot-card small{color:#536174;letter-spacing:.15em}.boot-progress{width:260px;height:4px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden;margin:18px auto}.boot-progress i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));animation:load 2.15s ease forwards}.boot-hide{opacity:0;visibility:hidden}
     @keyframes rise{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}@keyframes pulse{50%{opacity:.4}}@keyframes draw{to{stroke-dashoffset:0}}@keyframes load{from{width:0}to{width:100%}}@keyframes spin{to{transform:rotate(360deg)}}@keyframes gridMove{to{background-position:46px 46px}}@keyframes float{50%{transform:translateY(-6px)}}
     @media(max-width:980px){.g4{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:1fr}.g2,.hero{grid-template-columns:1fr}.hero{min-height:auto}.hero-side{margin-top:24px}.theme-grid{grid-template-columns:repeat(2,1fr)}}
-    @media(max-width:680px){.shell{padding:12px}.layout{display:block}.side{position:fixed;z-index:20;bottom:10px;top:auto;left:10px;right:10px;display:grid;grid-template-columns:repeat(5,1fr);padding:6px;border-radius:22px}.nav{margin:0;padding:9px 2px}.nav span{font-size:18px}.nav small{font-size:8px}.top{padding:5px 2px 14px}.brand b{font-size:13px}.status{font-size:9px}.panel{border-radius:22px;padding:18px}.hero{padding:24px 18px}.money{font-size:42px}.g4{grid-template-columns:1fr 1fr}.ring{width:105px;height:105px}.ring:before{width:78px;height:78px}.theme-grid{grid-template-columns:1fr 1fr}.cat{grid-template-columns:85px 1fr auto}.glow{display:none}}
+    @media(max-width:680px){
+      html{scroll-padding-bottom:100px}
+      body{padding-bottom:calc(92px + env(safe-area-inset-bottom));-webkit-text-size-adjust:100%}
+      .shell{padding:10px 10px 0}
+      .layout{display:block}
+      main{width:100%;min-width:0}
+      .side{position:fixed;z-index:50;bottom:calc(8px + env(safe-area-inset-bottom));top:auto;left:8px;right:8px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;padding:6px;border-radius:20px;background:rgba(7,11,18,.96);box-shadow:0 14px 45px rgba(0,0,0,.7);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px)}
+      .nav{min-width:0;margin:0;padding:8px 1px;border-radius:14px}
+      .nav span{font-size:18px;line-height:1}
+      .nav small{font-size:7.5px;letter-spacing:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:5px}
+      .top{padding:4px 2px 12px;gap:8px}
+      .brand{min-width:0}
+      .brand b{font-size:12px;letter-spacing:.08em;white-space:nowrap}
+      .brand small{font-size:8px;letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:58vw}
+      .status{flex:0 0 auto;font-size:8px;padding:7px 9px;white-space:nowrap}
+      .status:before{width:6px;height:6px;margin-right:5px}
+      .grid{gap:12px}
+      .g2,.g3,.g4{grid-template-columns:1fr}
+      .panel{min-width:0;border-radius:20px;padding:16px}
+      .hero{min-height:auto;padding:22px 16px;grid-template-columns:1fr}
+      .hero:before{width:280px;height:280px;right:-120px;top:-110px}
+      .hero-side{margin-top:18px}
+      .title{font-size:22px}
+      .money{font-size:clamp(32px,10vw,44px);line-height:1.08;overflow-wrap:anywhere;word-break:break-word}
+      .clock{font-size:28px}
+      .quick{grid-template-columns:1fr 1fr;gap:8px;margin-top:18px}
+      .quick a{padding:12px 10px;font-size:13px}
+      .metric{font-size:25px;overflow-wrap:anywhere}
+      .ring{width:112px;height:112px}
+      .ring:before{width:84px;height:84px}
+      .theme-grid{grid-template-columns:1fr 1fr;gap:10px}
+      .theme{padding:16px 8px;font-size:13px}
+      .cat{grid-template-columns:minmax(70px,90px) minmax(70px,1fr) auto;gap:8px;font-size:12px}
+      .row{align-items:flex-start;gap:10px}
+      .row span{min-width:0;overflow-wrap:anywhere}
+      .row b{font-size:13px;white-space:normal;text-align:right;overflow-wrap:anywhere}
+      .chart{height:165px}
+      .ai-message{font-size:15px;line-height:1.65}
+      footer{padding:24px 8px 16px;font-size:8px;letter-spacing:.05em}
+      .boot-halo{width:78vw;height:78vw;max-width:330px;max-height:330px}
+      .boot-logo{font-size:56px}
+      .boot-card{width:min(88vw,340px);padding:0 14px}
+      .boot-progress{width:min(72vw,260px)}
+      .glow{display:none}
+    }
+    @media(max-width:380px){
+      .quick{grid-template-columns:1fr}
+      .theme-grid{grid-template-columns:1fr}
+      .nav small{font-size:7px}
+      .brand small{display:none}
+      .money{font-size:32px}
+      .cat{grid-template-columns:72px 1fr}
+      .cat>*:last-child{grid-column:2;text-align:right}
+    }
     @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
     '''
     script = r'''
