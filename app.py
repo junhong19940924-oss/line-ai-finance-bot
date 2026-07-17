@@ -3159,21 +3159,211 @@ def calculate_jarvis_summary() -> dict[str, Any]:
 
 
 def jarvis_layout(body: str, active: str, title: str, boot: bool = False) -> str:
-    links = [("garage","/jarvis","🏎️","Garage"),("command","/jarvis/command","🎖️","Command"),("private","/jarvis/private","👑","Private"),("themes","/jarvis/themes","🎨","Themes"),("classic","/smart","📊","Classic")]
-    nav = "".join(f'<a class="nav {"on" if k==active else ""}" href="{u}">{i}<small>{n}</small></a>' for k,u,i,n in links)
-    boot_html = '<div id="boot"><b>PROJECT JARVIS</b><span>AI FINANCE COMMAND CENTER</span><i></i><small>INITIALIZING...</small></div>' if boot else ''
-    css = '''
-    :root{--a:#d7ff3f;--b:#40dfff;--g:#d9b56d;--m:#8b95a5}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at top,#253047,#0a0d13 42%,#040507);color:#f7f9fc;font-family:-apple-system,"Microsoft JhengHei",sans-serif}body[data-theme=blue]{--a:#45baff;--b:#78e8ff}body[data-theme=red]{--a:#ff4f62;--b:#ff9c66}body[data-theme=gold]{--a:#d9b56d;--b:#f7e1a8}.app{max-width:1400px;margin:auto;padding:18px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.brand{letter-spacing:.22em;font-weight:900}.online{color:var(--a);border:1px solid #2c3543;border-radius:99px;padding:8px 12px;font-size:12px}.layout{display:grid;grid-template-columns:105px 1fr;gap:18px}.side{background:#0c1119d9;border:1px solid #222b38;border-radius:24px;padding:10px;height:max-content;position:sticky;top:15px}.nav{display:block;text-decoration:none;color:#8791a2;text-align:center;padding:12px 4px;border-radius:16px;font-size:22px;margin:4px}.nav small{display:block;font-size:10px;margin-top:5px}.nav.on,.nav:hover{background:#192230;color:var(--a)}.grid{display:grid;gap:16px}.g2{grid-template-columns:2fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.panel{background:linear-gradient(145deg,#151b25f5,#090c12f5);border:1px solid #252f3e;border-radius:24px;padding:22px;box-shadow:0 18px 55px #0007}.hero{text-align:center;padding:36px}.label{color:var(--m);letter-spacing:.16em;font-size:11px}.money{font-size:clamp(35px,6vw,68px);font-weight:900;letter-spacing:-.05em;margin:10px}.accent{color:var(--a)}.metric{font-size:28px;font-weight:850;margin-top:7px}.bar{height:8px;background:#242c38;border-radius:99px;overflow:hidden;margin-top:12px}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--b),var(--a));box-shadow:0 0 15px var(--a)}.list{display:grid}.row{display:flex;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px solid #202936}.row:last-child{border:0}.actions{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:20px}.actions a,.theme{background:#121924;border:1px solid #2a3546;color:#dbe1ea;border-radius:15px;padding:14px;text-decoration:none;text-align:center}.actions a:hover,.theme:hover{border-color:var(--a);color:var(--a)}.gauge{font-size:52px;font-weight:900;text-align:center;margin:25px 0 5px;text-shadow:0 0 25px var(--a)}.radar{width:230px;height:230px;border-radius:50%;margin:12px auto;background:repeating-radial-gradient(circle,#253140 0 1px,transparent 2px 36px),linear-gradient(90deg,transparent 49.5%,#273241 50%,transparent 50.5%),linear-gradient(transparent 49.5%,#273241 50%,transparent 50.5%);position:relative}.radar:after{content:"";position:absolute;inset:0;border-radius:50%;background:conic-gradient(#40dfff66,transparent 18%);animation:scan 4s linear infinite}@keyframes scan{to{transform:rotate(360deg)}}.report{background:radial-gradient(circle at top,#302717,#0b0906 65%);border-color:#5c4928;color:#f4e5bd}.gold{color:var(--g)}#boot{position:fixed;inset:0;z-index:99;background:#030507;display:flex;flex-direction:column;justify-content:center;align-items:center;transition:.7s}#boot b{font-size:clamp(28px,6vw,64px);letter-spacing:.2em;color:var(--a);text-shadow:0 0 25px var(--a)}#boot span,#boot small{color:#7f8998;letter-spacing:.2em;margin-top:10px}#boot i{width:min(520px,78vw);height:4px;background:var(--a);margin-top:30px;animation:load 1.8s ease}@keyframes load{from{width:0}}#boot.hide{opacity:0;visibility:hidden}.theme{cursor:pointer;font-weight:800}footer{text-align:center;color:#596274;padding:22px}@media(max-width:850px){.layout{grid-template-columns:1fr}.side{position:fixed;z-index:20;left:10px;right:10px;bottom:10px;top:auto;display:flex;justify-content:space-around}.nav{flex:1;padding:8px 2px;font-size:18px}.g2,.g3{grid-template-columns:1fr}main{padding-bottom:90px}.actions{grid-template-columns:repeat(2,1fr)}}
+    links = [
+        ("garage", "/jarvis", "◉", "GARAGE"),
+        ("command", "/jarvis/command", "⌁", "COMMAND"),
+        ("private", "/jarvis/private", "◆", "PRIVATE"),
+        ("themes", "/jarvis/themes", "✦", "THEMES"),
+        ("classic", "/smart", "▦", "CLASSIC"),
+    ]
+    nav = "".join(
+        f'<a class="nav {"on" if k == active else ""}" href="{u}">'
+        f'<span>{i}</span><small>{n}</small></a>'
+        for k, u, i, n in links
+    )
+
+    boot_html = '''
+    <div id="boot" aria-hidden="true">
+        <div class="boot-ring ring-one"></div>
+        <div class="boot-ring ring-two"></div>
+        <div class="boot-core">
+            <div id="boot-word">J</div>
+            <div class="boot-sub">PROJECT JARVIS</div>
+            <div class="boot-terminal"><span id="boot-line">INITIALIZING CORE...</span></div>
+            <div class="boot-track"><i></i></div>
+            <small>SUPERSPORT FINANCIAL SYSTEM</small>
+        </div>
+    </div>
+    ''' if boot else ""
+
+    css = r'''
+    :root{--a:#28d7ff;--a2:#77f1ff;--gold:#d9b56d;--panel:rgba(10,15,23,.82);--line:rgba(116,218,255,.18);--muted:#8190a4;--ok:#65ffb0}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}
+    body{margin:0;min-height:100vh;overflow-x:hidden;color:#f8fbff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft JhengHei",sans-serif;background:radial-gradient(circle at 50% -10%,rgba(29,96,140,.32),transparent 42%),radial-gradient(circle at 90% 10%,rgba(18,215,255,.08),transparent 24%),linear-gradient(145deg,#020304,#07101a 52%,#020304)}
+    body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.18;background-image:linear-gradient(45deg,rgba(255,255,255,.025) 25%,transparent 25%),linear-gradient(-45deg,rgba(255,255,255,.025) 25%,transparent 25%),linear-gradient(45deg,transparent 75%,rgba(255,255,255,.025) 75%),linear-gradient(-45deg,transparent 75%,rgba(255,255,255,.025) 75%);background-size:10px 10px;background-position:0 0,0 5px,5px -5px,-5px 0}
+    body[data-theme=blue]{--a:#3c8cff;--a2:#72d8ff}body[data-theme=red]{--a:#ff3f5f;--a2:#ff996f}body[data-theme=gold]{--a:#d9b56d;--a2:#fff0b6}body[data-theme=lime]{--a:#28d7ff;--a2:#77f1ff}
+    #particle-canvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;opacity:.48;z-index:0}
+    .cursor-glow{position:fixed;width:360px;height:360px;border-radius:50%;pointer-events:none;z-index:0;transform:translate(-50%,-50%);background:radial-gradient(circle,rgba(40,215,255,.10),transparent 67%);filter:blur(5px)}
+    .scanline{position:fixed;left:0;right:0;height:1px;top:-5%;pointer-events:none;z-index:2;background:linear-gradient(90deg,transparent,var(--a),transparent);box-shadow:0 0 18px var(--a);opacity:.28;animation:globalScan 8s linear infinite}
+    .app{position:relative;z-index:1;max-width:1480px;margin:auto;padding:18px}
+    .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;padding:8px 4px;animation:dropIn .8s both}
+    .brand{letter-spacing:.28em;font-weight:900;font-size:14px}.brand em{font-style:normal;color:var(--a);text-shadow:0 0 16px var(--a)}
+    .online{color:var(--ok);border:1px solid rgba(101,255,176,.25);background:rgba(5,20,16,.55);border-radius:99px;padding:8px 13px;font-size:11px;letter-spacing:.12em}
+    .online:before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);margin-right:7px;box-shadow:0 0 12px var(--ok);animation:pulse 1.4s ease-in-out infinite}
+    .layout{display:grid;grid-template-columns:104px 1fr;gap:18px}
+    .side{background:linear-gradient(180deg,rgba(13,19,29,.94),rgba(5,8,12,.88));border:1px solid var(--line);border-radius:26px;padding:10px;height:max-content;position:sticky;top:15px;box-shadow:0 20px 60px rgba(0,0,0,.45);backdrop-filter:blur(18px);animation:slideLeft .8s .08s both}
+    .nav{display:block;text-decoration:none;color:#768397;text-align:center;padding:13px 4px;border-radius:17px;margin:4px;position:relative;transition:.28s}
+    .nav span{font-size:23px;display:block;transition:.28s}.nav small{display:block;font-size:9px;letter-spacing:.1em;margin-top:5px}
+    .nav:after{content:"";position:absolute;left:18%;right:18%;bottom:4px;height:1px;transform:scaleX(0);background:var(--a);box-shadow:0 0 10px var(--a);transition:.28s}
+    .nav.on,.nav:hover{color:var(--a);background:linear-gradient(145deg,rgba(40,215,255,.12),rgba(40,215,255,.025));transform:translateY(-2px)}
+    .nav.on span,.nav:hover span{filter:drop-shadow(0 0 9px var(--a));transform:scale(1.08)}.nav.on:after,.nav:hover:after{transform:scaleX(1)}
+    main{min-width:0}.grid{display:grid;gap:16px}.g2{grid-template-columns:minmax(0,2fr) minmax(290px,1fr)}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .panel{position:relative;overflow:hidden;background:linear-gradient(145deg,rgba(18,27,40,.88),rgba(5,8,13,.93));border:1px solid var(--line);border-radius:26px;padding:22px;box-shadow:0 22px 70px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.025);backdrop-filter:blur(18px);opacity:0;transform:translateY(24px) scale(.985);animation:panelIn .8s cubic-bezier(.16,.84,.3,1) forwards;transition:transform .22s,border-color .22s,box-shadow .22s;transform-style:preserve-3d}
+    .panel:nth-child(2){animation-delay:.08s}.panel:nth-child(3){animation-delay:.16s}.panel:nth-child(4){animation-delay:.24s}
+    .panel:before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(115deg,transparent 25%,rgba(255,255,255,.035) 45%,transparent 64%);transform:translateX(-120%);animation:panelSweep 7s ease-in-out infinite}
+    .panel:after{content:"";position:absolute;left:8%;right:8%;top:0;height:1px;background:linear-gradient(90deg,transparent,var(--a),transparent);opacity:.45;box-shadow:0 0 12px var(--a)}
+    .panel:hover{border-color:rgba(40,215,255,.36);box-shadow:0 26px 85px rgba(0,0,0,.5),0 0 30px rgba(40,215,255,.05)}
+    .hero{min-height:360px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;background:radial-gradient(circle at 50% 38%,rgba(40,215,255,.15),transparent 34%),linear-gradient(145deg,rgba(12,22,34,.94),rgba(3,6,10,.96))}
+    .hero-rings{position:absolute;inset:0;pointer-events:none}.hero-rings i{position:absolute;left:50%;top:47%;border:1px solid rgba(40,215,255,.11);border-radius:50%;transform:translate(-50%,-50%);animation:ringBreath 3s ease-in-out infinite}
+    .hero-rings i:nth-child(1){width:250px;height:250px}.hero-rings i:nth-child(2){width:330px;height:330px;animation-delay:.5s}.hero-rings i:nth-child(3){width:430px;height:430px;animation-delay:1s}
+    .label{color:var(--muted);letter-spacing:.18em;font-size:10px;text-transform:uppercase}
+    .money{position:relative;z-index:1;font-size:clamp(38px,6.5vw,82px);font-weight:900;letter-spacing:-.06em;margin:9px 0 3px;background:linear-gradient(180deg,#fff 20%,#c8f7ff 62%,var(--a));-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 18px rgba(40,215,255,.18))}
+    .sub-value{position:relative;z-index:1;color:var(--a);font-weight:700}.accent{color:var(--a);text-shadow:0 0 14px rgba(40,215,255,.28)}
+    .metric{font-size:29px;font-weight:850;margin-top:7px;letter-spacing:-.03em}.micro{font-size:11px;color:var(--muted)}
+    .bar{height:8px;background:#18202c;border-radius:99px;overflow:hidden;margin-top:13px;box-shadow:inset 0 1px 5px rgba(0,0,0,.8)}
+    .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--a),var(--a2),#fff);box-shadow:0 0 16px var(--a);border-radius:99px;transition:width 1.5s cubic-bezier(.18,.82,.22,1);position:relative}
+    .bar i:after{content:"";position:absolute;right:0;top:-3px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 0 18px var(--a)}
+    .list{display:grid}.row{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:13px 0;border-bottom:1px solid rgba(126,170,205,.11);transition:.22s}.row:hover{padding-left:7px;color:#fff}.row:last-child{border:0}
+    .actions{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:24px;width:100%}
+    .actions a,.theme{position:relative;overflow:hidden;background:linear-gradient(145deg,rgba(18,28,42,.82),rgba(7,11,17,.9));border:1px solid rgba(103,210,255,.16);color:#dbe8f4;border-radius:16px;padding:14px;text-decoration:none;text-align:center;transition:.25s}
+    .actions a:before,.theme:before{content:"";position:absolute;inset:-80% 55% -80% -55%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.12),transparent);transform:rotate(18deg);transition:.55s}
+    .actions a:hover,.theme:hover{border-color:var(--a);color:var(--a);transform:translateY(-4px);box-shadow:0 12px 30px rgba(0,0,0,.35),0 0 18px rgba(40,215,255,.08)}
+    .actions a:hover:before,.theme:hover:before{transform:translateX(230%) rotate(18deg)}
+    .cluster{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:16px}
+    .dial{text-align:center;min-height:215px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+    .dial-svg{width:145px;height:145px;transform:rotate(-90deg)}.dial-track{fill:none;stroke:rgba(123,166,198,.14);stroke-width:8}
+    .dial-progress{fill:none;stroke:url(#dialGradient);stroke-width:8;stroke-linecap:round;stroke-dasharray:339.292;stroke-dashoffset:339.292;filter:drop-shadow(0 0 7px var(--a));transition:stroke-dashoffset 1.7s cubic-bezier(.2,.85,.2,1)}
+    .dial-core{position:absolute;font-size:25px;font-weight:900;text-shadow:0 0 18px var(--a)}.dial-wrap{position:relative;display:grid;place-items:center}
+    .dial-name{margin-top:5px;font-size:10px;letter-spacing:.18em;color:var(--muted)}.dial-note{font-size:11px;margin-top:6px;color:#d8e4ef}
+    .telemetry{height:54px;display:flex;align-items:end;gap:5px;margin-top:18px;opacity:.7}.telemetry i{flex:1;min-width:3px;background:linear-gradient(180deg,var(--a),transparent);border-radius:5px 5px 0 0;transform-origin:bottom;animation:telemetry 1.2s ease-in-out infinite alternate}.telemetry i:nth-child(2n){animation-delay:.18s}.telemetry i:nth-child(3n){animation-delay:.35s}
+    .ai-orb{position:fixed;right:24px;bottom:24px;z-index:40;width:68px;height:68px;border-radius:50%;cursor:pointer;display:grid;place-items:center;background:radial-gradient(circle at 35% 30%,#d9fbff,var(--a) 18%,#07394b 52%,#020607 75%);border:1px solid rgba(255,255,255,.36);box-shadow:0 0 0 8px rgba(40,215,255,.05),0 0 35px rgba(40,215,255,.35);animation:orbFloat 2.8s ease-in-out infinite}
+    .ai-orb:after{content:"";position:absolute;inset:-8px;border-radius:50%;border:1px dashed rgba(119,241,255,.35);animation:spin 9s linear infinite}.ai-orb b{font-size:18px;letter-spacing:.06em}
+    .ai-panel{position:fixed;right:24px;bottom:104px;z-index:39;width:min(360px,calc(100vw - 32px));padding:18px;border-radius:22px;background:rgba(4,10,16,.95);border:1px solid rgba(40,215,255,.28);box-shadow:0 24px 80px rgba(0,0,0,.65),0 0 35px rgba(40,215,255,.08);backdrop-filter:blur(20px);opacity:0;visibility:hidden;transform:translateY(18px) scale(.96);transition:.3s}
+    .ai-panel.show{opacity:1;visibility:visible;transform:none}.ai-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.ai-status{font-size:10px;color:var(--ok);letter-spacing:.12em}.ai-message{line-height:1.75;color:#d8e4ee;font-size:14px}
+    .report{background:radial-gradient(circle at top,#302717,#0b0906 65%);border-color:#5c4928;color:#f4e5bd}.gold{color:var(--gold)}
+    .radar{width:230px;height:230px;border-radius:50%;margin:12px auto;background:repeating-radial-gradient(circle,#253140 0 1px,transparent 2px 36px),linear-gradient(90deg,transparent 49.5%,#273241 50%,transparent 50.5%),linear-gradient(transparent 49.5%,#273241 50%,transparent 50.5%);position:relative;overflow:hidden}
+    .radar:after{content:"";position:absolute;inset:0;border-radius:50%;background:conic-gradient(rgba(40,215,255,.42),transparent 18%);animation:spin 4s linear infinite}
+    .theme{cursor:pointer;font-weight:800}footer{text-align:center;color:#536174;padding:22px;font-size:11px;letter-spacing:.12em}
+    #boot{position:fixed;inset:0;z-index:999;background:radial-gradient(circle,#071522 0,#020304 56%,#000);display:grid;place-items:center;transition:opacity .8s,visibility .8s}#boot.hide{opacity:0;visibility:hidden}
+    .boot-core{text-align:center;position:relative;z-index:2}#boot-word{font-size:clamp(70px,14vw,170px);font-weight:900;letter-spacing:.08em;color:var(--a);text-shadow:0 0 20px var(--a),0 0 70px rgba(40,215,255,.35);min-height:1.2em}
+    .boot-sub{font-size:13px;letter-spacing:.45em;color:#e7fbff;margin-left:.45em}.boot-terminal{margin-top:24px;height:24px;color:var(--a);font-size:11px;letter-spacing:.16em}
+    .boot-track{width:min(560px,78vw);height:3px;background:#12202b;margin:16px auto 12px;overflow:hidden;border-radius:99px}.boot-track i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--a),#fff,var(--a));box-shadow:0 0 16px var(--a);animation:bootLoad 3.1s cubic-bezier(.12,.74,.2,1) forwards}
+    #boot small{color:#5d7182;letter-spacing:.22em}.boot-ring{position:absolute;border-radius:50%;border:1px solid rgba(40,215,255,.14)}.ring-one{width:400px;height:400px;animation:spin 9s linear infinite}.ring-two{width:520px;height:520px;border-style:dashed;animation:spinReverse 14s linear infinite}
+    @keyframes panelIn{to{opacity:1;transform:translateY(0) scale(1)}}@keyframes panelSweep{0%,68%{transform:translateX(-130%)}85%,100%{transform:translateX(135%)}}@keyframes telemetry{from{transform:scaleY(.2);opacity:.35}to{transform:scaleY(1);opacity:1}}@keyframes ringBreath{50%{transform:translate(-50%,-50%) scale(1.06);opacity:.35}}@keyframes pulse{50%{opacity:.35;transform:scale(.8)}}@keyframes orbFloat{50%{transform:translateY(-7px)}}@keyframes spin{to{transform:rotate(360deg)}}@keyframes spinReverse{to{transform:rotate(-360deg)}}@keyframes bootLoad{to{width:100%}}@keyframes globalScan{to{top:105%}}@keyframes dropIn{from{opacity:0;transform:translateY(-15px)}}@keyframes slideLeft{from{opacity:0;transform:translateX(-18px)}}
+    @media(max-width:1050px){.cluster{grid-template-columns:repeat(2,1fr)}}@media(max-width:850px){.app{padding:12px}.layout{grid-template-columns:1fr}.side{position:fixed;z-index:50;left:10px;right:10px;bottom:10px;top:auto;display:flex;justify-content:space-around;padding:6px;border-radius:20px}.nav{flex:1;padding:8px 2px;margin:1px}.nav span{font-size:18px}.nav small{font-size:8px}.g2,.g3{grid-template-columns:1fr}main{padding-bottom:84px}.actions{grid-template-columns:repeat(2,1fr)}.hero{min-height:330px}.ai-orb{right:16px;bottom:92px;width:58px;height:58px}.ai-panel{right:16px;bottom:160px}.cursor-glow{display:none}.ring-two{width:90vw;height:90vw}.ring-one{width:68vw;height:68vw}}@media(max-width:560px){.cluster{grid-template-columns:1fr 1fr;gap:10px}.panel{border-radius:21px;padding:17px}.dial{min-height:190px}.dial-svg{width:128px;height:128px}.money{font-size:44px}.top .label{display:none}}@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important}.panel{opacity:1;transform:none}}
     '''
-    return f'''<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{escape(title)}</title><style>{css}</style></head><body><div class="app"><header class="top"><div><div class="brand">PROJECT JARVIS</div><small class="label">{APP_VERSION}</small></div><div class="online">● SYSTEM ONLINE</div></header><div class="layout"><nav class="side">{nav}</nav><main>{body}<footer>AI 財務管家 · Project JARVIS</footer></main></div></div>{boot_html}<script>document.body.dataset.theme=localStorage.getItem('jarvis-theme')||'lime';document.querySelectorAll('[data-theme]').forEach(x=>x.onclick=()=>{{document.body.dataset.theme=x.dataset.theme;localStorage.setItem('jarvis-theme',x.dataset.theme)}});const b=document.getElementById('boot');if(b)setTimeout(()=>b.classList.add('hide'),2100)</script></body></html>'''
+
+    script = r'''
+    <script>
+    (() => {
+        document.body.dataset.theme = localStorage.getItem("jarvis-theme") || "lime";
+        document.querySelectorAll(".theme[data-theme]").forEach((button) => button.addEventListener("click", () => {
+            document.body.dataset.theme = button.dataset.theme;
+            localStorage.setItem("jarvis-theme", button.dataset.theme);
+        }));
+        const boot=document.getElementById("boot");
+        if(boot){
+            const word=document.getElementById("boot-word"),line=document.getElementById("boot-line");
+            ["J","JA","JAR","JARV","JARVI","JARVIS"].forEach((v,i)=>setTimeout(()=>{if(word)word.textContent=v},150+i*210));
+            ["INITIALIZING CORE...","CONNECTING FINANCE DATABASE...","CALIBRATING TELEMETRY...","LOADING SECURITY MATRIX...","AI SYSTEM READY"].forEach((v,i)=>setTimeout(()=>{if(line)line.textContent=v},350+i*560));
+            setTimeout(()=>boot.classList.add("hide"),3300);
+        }
+        const fmt=(v,d=0)=>Number(v).toLocaleString("zh-TW",{minimumFractionDigits:d,maximumFractionDigits:d});
+        const animateCount=(n)=>{const t=Number(n.dataset.count||0),d=Number(n.dataset.decimals||0),p=n.dataset.prefix||"",s=n.dataset.suffix||"",start=performance.now();const tick=(now)=>{const q=Math.min((now-start)/1450,1),e=1-Math.pow(1-q,4);n.textContent=p+fmt(t*e,d)+s;if(q<1)requestAnimationFrame(tick)};requestAnimationFrame(tick)};
+        const observer=new IntersectionObserver(entries=>entries.forEach(entry=>{if(!entry.isIntersecting)return;entry.target.querySelectorAll("[data-count]").forEach(n=>{if(!n.dataset.animated){n.dataset.animated="1";animateCount(n)}});entry.target.querySelectorAll(".bar i[data-width]").forEach(b=>requestAnimationFrame(()=>b.style.width=b.dataset.width+"%"));entry.target.querySelectorAll(".dial-progress[data-percent]").forEach(c=>{const p=Math.max(0,Math.min(100,Number(c.dataset.percent||0)));requestAnimationFrame(()=>c.style.strokeDashoffset=String(339.292*(1-p/100)))});observer.unobserve(entry.target)}),{threshold:.18});
+        document.querySelectorAll(".panel").forEach(p=>observer.observe(p));
+        if(matchMedia("(pointer:fine)").matches){
+            const glow=document.querySelector(".cursor-glow");addEventListener("mousemove",e=>{if(glow){glow.style.left=e.clientX+"px";glow.style.top=e.clientY+"px"}});
+            document.querySelectorAll(".tilt").forEach(card=>{card.addEventListener("mousemove",e=>{const r=card.getBoundingClientRect(),rx=((e.clientY-r.top)/r.height-.5)*-4,ry=((e.clientX-r.left)/r.width-.5)*5;card.style.transform=`perspective(900px) rotateX(${rx}deg) rotateY(${ry}deg) translateY(-2px)`});card.addEventListener("mouseleave",()=>card.style.transform="")});
+        }
+        const orb=document.querySelector(".ai-orb"),panel=document.querySelector(".ai-panel");if(orb&&panel)orb.addEventListener("click",()=>panel.classList.toggle("show"));
+        const canvas=document.getElementById("particle-canvas");
+        if(canvas&&!matchMedia("(prefers-reduced-motion:reduce)").matches){
+            const ctx=canvas.getContext("2d");let particles=[];
+            const resize=()=>{canvas.width=innerWidth*devicePixelRatio;canvas.height=innerHeight*devicePixelRatio;canvas.style.width=innerWidth+"px";canvas.style.height=innerHeight+"px";ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);particles=Array.from({length:innerWidth<700?24:56},()=>({x:Math.random()*innerWidth,y:Math.random()*innerHeight,r:Math.random()*1.5+.3,vx:(Math.random()-.5)*.16,vy:-(Math.random()*.18+.04),a:Math.random()*.5+.15}))};
+            resize();addEventListener("resize",resize);
+            const draw=()=>{ctx.clearRect(0,0,innerWidth,innerHeight);const color=getComputedStyle(document.body).getPropertyValue("--a").trim()||"#28d7ff";particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;if(p.y<-10)p.y=innerHeight+10;if(p.x<-10)p.x=innerWidth+10;if(p.x>innerWidth+10)p.x=-10;ctx.globalAlpha=p.a;ctx.fillStyle=color;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill()});ctx.globalAlpha=1;requestAnimationFrame(draw)};draw();
+        }
+    })();
+    </script>
+    '''
+
+    return f'''<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#05070a"><title>{escape(title)}</title><style>{css}</style></head><body><canvas id="particle-canvas"></canvas><div class="cursor-glow"></div><div class="scanline"></div><div class="app"><header class="top"><div><div class="brand">PROJECT <em>JARVIS</em></div><small class="label">{APP_VERSION}</small></div><div class="online">SYSTEM ONLINE</div></header><div class="layout"><nav class="side">{nav}</nav><main>{body}<footer>AI 財務管家 · PROJECT JARVIS · SUPERSPORT EDITION</footer></main></div></div>{boot_html}{script}</body></html>'''
 
 
 @app.route("/jarvis")
 def jarvis_garage():
     s = calculate_jarvis_summary()
-    banks = "".join(f'<div class="row"><span>{escape(n)}</span><b>NT$ {int(v.get("balance") or 0):,}</b></div>' for n,v in s["banks"].items()) or '<span class="label">尚無銀行資料</span>'
-    body = f'''<div class="grid g2"><section class="panel hero"><div class="label">GARAGE MODE · NET WORTH</div><div class="money">NT$ {int(s["net_worth"]):,}</div><div class="accent">本月結餘 {"+" if s["balance"]>=0 else ""}NT$ {int(s["balance"]):,}</div><div class="actions"><a href="/admin">🏦<br>銀行</a><a href="/admin">💳<br>信用卡</a><a href="/admin">📝<br>記帳</a><a href="/jarvis/command">🤖<br>AI 分析</a></div></section><section class="panel"><div class="label">FINANCIAL HEALTH</div><div class="gauge accent">{s["health_score"]}</div><div style="text-align:center">{s["risk"]} RISK</div></section></div><div class="grid g3" style="margin-top:16px"><section class="panel"><div class="label">CASH RESERVE</div><div class="metric">NT$ {int(s["cash"]):,}</div><div class="bar"><i style="width:{min(max(s["saving_rate"],0),100):.1f}%"></i></div><small>儲蓄率 {s["saving_rate"]:.1f}%</small></section><section class="panel"><div class="label">CREDIT USAGE</div><div class="metric">{s["credit_ratio"]:.1f}%</div><div class="bar"><i style="width:{min(s["credit_ratio"],100):.1f}%"></i></div><small>已使用 NT$ {int(s["credit_used"]):,}</small></section><section class="panel"><div class="label">GOAL PROGRESS</div><div class="metric">{s["goal_ratio"]:.1f}%</div><div class="bar"><i style="width:{min(s["goal_ratio"],100):.1f}%"></i></div><small>綜合目標進度</small></section></div><div class="grid g2" style="margin-top:16px"><section class="panel"><h3>BANK TELEMETRY</h3><div class="list">{banks}</div></section><section class="panel"><h3>MONTHLY ENGINE</h3><div class="list"><div class="row"><span>收入</span><b>NT$ {int(s["income"]):,}</b></div><div class="row"><span>支出</span><b>NT$ {int(s["expense"]):,}</b></div><div class="row"><span>月底預估</span><b>NT$ {int(s["projected_expense"]):,}</b></div><div class="row"><span>最大支出</span><b>{escape(s["top_category"])}</b></div></div></section></div>'''
-    return jarvis_layout(body, "garage", "JARVIS Garage", request.args.get("boot","1")=="1")
+    banks = "".join(
+        f'<div class="row"><span>{escape(name)}</span><b>NT$ <span data-count="{int(value.get("balance") or 0)}">0</span></b></div>'
+        for name, value in s["banks"].items()
+    ) or '<span class="label">尚無銀行資料</span>'
+
+    cash_ratio = min(max(float(s.get("saving_rate", 0)), 0), 100)
+    credit_ratio = min(max(float(s.get("credit_ratio", 0)), 0), 100)
+    debt_base = max(float(s.get("cash", 0)) + float(s.get("debt", 0)), 1)
+    debt_ratio = min(max(float(s.get("debt", 0)) / debt_base * 100, 0), 100)
+    budget_ratio = min(max(float(s.get("budget_ratio", 0)), 0), 100)
+
+    def dial(label: str, percent: float, note: str) -> str:
+        safe_percent = min(max(float(percent), 0), 100)
+        return f'''
+        <section class="panel dial tilt">
+            <div class="dial-wrap">
+                <svg class="dial-svg" viewBox="0 0 120 120" aria-hidden="true">
+                    <defs><linearGradient id="dialGradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="var(--a)"/><stop offset="62%" stop-color="var(--a2)"/><stop offset="100%" stop-color="#ffffff"/></linearGradient></defs>
+                    <circle class="dial-track" cx="60" cy="60" r="54"/>
+                    <circle class="dial-progress" data-percent="{safe_percent:.2f}" cx="60" cy="60" r="54"/>
+                </svg>
+                <div class="dial-core"><span data-count="{safe_percent:.1f}" data-decimals="1" data-suffix="%">0%</span></div>
+            </div>
+            <div class="dial-name">{escape(label)}</div>
+            <div class="dial-note">{escape(note)}</div>
+        </section>'''
+
+    telemetry = "".join(
+        f'<i style="height:{18 + ((index * 19) % 82)}%;animation-duration:{.7 + (index % 7) * .13:.2f}s"></i>'
+        for index in range(34)
+    )
+    ai_advice = s.get("advice") or ["本月財務狀況已載入，請持續維持穩定現金流。"]
+    ai_message = "<br>".join(escape(item) for item in ai_advice[:3])
+
+    body = f'''
+    <section class="panel hero tilt">
+        <div class="hero-rings"><i></i><i></i><i></i></div>
+        <div class="label">GARAGE MODE · TOTAL NET WORTH</div>
+        <div class="money">NT$ <span data-count="{int(s["net_worth"])}">0</span></div>
+        <div class="sub-value">本月結餘 {"+" if s["balance"] >= 0 else ""}NT$ <span data-count="{int(s["balance"])}">0</span></div>
+        <div class="actions">
+            <a href="/admin">🏦<br><small>銀行系統</small></a>
+            <a href="/admin">💳<br><small>信用卡</small></a>
+            <a href="/admin">✍️<br><small>快速記帳</small></a>
+            <a href="/jarvis/command">🤖<br><small>AI 分析</small></a>
+        </div>
+    </section>
+
+    <div class="cluster">
+        {dial("CASH RESERVE", cash_ratio, f'現金 NT$ {int(s["cash"]):,}')}
+        {dial("CREDIT LOAD", credit_ratio, f'已使用 NT$ {int(s["credit_used"]):,}')}
+        {dial("DEBT PRESSURE", debt_ratio, f'負債 NT$ {int(s["debt"]):,}')}
+        {dial("BUDGET LOAD", budget_ratio, "本月預算使用率")}
+    </div>
+
+    <div class="grid g3" style="margin-top:16px">
+        <section class="panel tilt"><div class="label">MONTHLY INCOME</div><div class="metric accent">+ NT$ <span data-count="{int(s["income"])}">0</span></div><div class="telemetry">{telemetry}</div><div class="micro">INCOME ENGINE · LIVE</div></section>
+        <section class="panel tilt"><div class="label">MONTHLY EXPENSE</div><div class="metric">- NT$ <span data-count="{int(s["expense"])}">0</span></div><div class="bar"><i data-width="{min(max(float(s["expense"]) / max(float(s["income"]), 1) * 100, 0), 100):.1f}"></i></div><div class="micro" style="margin-top:10px">最大支出：{escape(s["top_category"])}</div></section>
+        <section class="panel tilt"><div class="label">FINANCIAL HEALTH</div><div class="metric accent"><span data-count="{int(s["health_score"])}">0</span> / 100</div><div class="bar"><i data-width="{int(s["health_score"])}"></i></div><div class="micro" style="margin-top:10px">{escape(s["risk"])} RISK · JARVIS RATING</div></section>
+    </div>
+
+    <div class="grid g2" style="margin-top:16px">
+        <section class="panel tilt"><div class="label">BANK TELEMETRY</div><h3>資金艙狀態</h3><div class="list">{banks}</div></section>
+        <section class="panel tilt"><div class="label">MONTHLY ENGINE</div><h3>本月動力數據</h3><div class="list"><div class="row"><span>收入</span><b>NT$ <span data-count="{int(s["income"])}">0</span></b></div><div class="row"><span>支出</span><b>NT$ <span data-count="{int(s["expense"])}">0</span></b></div><div class="row"><span>月底預估</span><b>NT$ <span data-count="{int(s["projected_expense"])}">0</span></b></div><div class="row"><span>目標完成度</span><b><span data-count="{float(s["goal_ratio"]):.1f}" data-decimals="1" data-suffix="%">0%</span></b></div></div></section>
+    </div>
+
+    <div class="ai-panel"><div class="ai-head"><b>JARVIS</b><span class="ai-status">● ONLINE</span></div><div class="label" style="margin-bottom:8px">FINANCIAL ASSISTANT</div><div class="ai-message">{ai_message}</div></div>
+    <button class="ai-orb" type="button" aria-label="開啟 JARVIS AI 助理"><b>J</b></button>
+    '''
+    return jarvis_layout(body, "garage", "JARVIS Supercar Garage", request.args.get("boot", "1") == "1")
 
 
 @app.route("/jarvis/command")
